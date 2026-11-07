@@ -54,9 +54,15 @@ export function dependency(key: string, input: any, workspace: Manifest, config:
 export function adaptToReleasedWgpu(source: string): string {
   const adapted = source
     .replace(/^[ \t]*default_queue: wgpu::QueueDescriptor::default\(\),\r?\n/gm, "")
-    .replaceAll(".has_srgb_suffix()", ".is_srgb()");
+    .replaceAll(".has_srgb_suffix()", ".is_srgb()")
+    // The released create_texture_from_hal has no `cleared` argument and treats
+    // every imported texture as cleared, which is what `true` asks for.
+    .replace(/(create_texture_from_hal::<[^>]+>\([\s\S]*?wgpu::TextureUses::[A-Z_]+,)\s*true,(\s*\))/g, "$1$2");
   if (adapted.includes("default_queue") || adapted.includes("QueueDescriptor")) {
     throw new Error("gpui_wgpu's wgpu queue configuration changed; review adaptToReleasedWgpu");
+  }
+  if (/create_texture_from_hal::<[^>]+>\([\s\S]*?wgpu::TextureUses::[A-Z_]+,\s*\w+,\s*\)/.test(adapted)) {
+    throw new Error("gpui_wgpu imports a texture the released wgpu cannot mark uncleared; review adaptToReleasedWgpu");
   }
   return adapted;
 }
