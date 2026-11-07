@@ -10,6 +10,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::fast::renderer_options::RendererOptions;
 use crate::wgpu_renderer::RendererState;
 use crate::{
     CompositorGpuHint, GpuContext, WgpuAtlas, WgpuContext, WgpuRenderer, WgpuSurfaceConfig,
@@ -149,6 +150,7 @@ impl WgpuRenderer {
         self.atlas.handle_device_lost(context);
 
         let is_bgr = self.is_bgr;
+        let options = self.fast_options;
         *self = Self::new_internal(
             Some(Rc::clone(&gpu_context)),
             context,
@@ -159,6 +161,7 @@ impl WgpuRenderer {
             Arc::clone(&self.atlas),
         )?;
         self.set_subpixel_layout(is_bgr);
+        RendererOptions::apply(options, self);
         log::info!("GPU recovery complete");
         Ok(())
     }

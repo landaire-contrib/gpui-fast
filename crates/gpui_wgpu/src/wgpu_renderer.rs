@@ -265,6 +265,7 @@ pub struct WgpuRenderer {
     observed_error_generation: u64,
     last_surface_error: Option<String>,
     needs_redraw: bool,
+    pub(crate) fast_options: crate::fast::renderer_options::RendererOptions,
 }
 
 impl WgpuRenderer {
@@ -521,6 +522,7 @@ impl WgpuRenderer {
             observed_error_generation: 0,
             last_surface_error: None,
             needs_redraw: false,
+            fast_options: crate::fast::renderer_options::RendererOptions::default(),
         })
     }
 }
@@ -1236,7 +1238,7 @@ impl WgpuRenderer {
             &frame_view,
             size,
             premultiplied_alpha,
-            wgpu::Color::TRANSPARENT,
+            crate::fast::renderer_options::RendererOptions::clear_color(&self.fast_options),
         ) {
             log::error!("{error:#}");
             return false;
@@ -2305,6 +2307,7 @@ impl WgpuRenderer {
         self.atlas.handle_device_lost(context);
 
         let is_bgr = self.is_bgr;
+        let fast_options = self.fast_options;
         *self = Self::new_internal(
             Some(gpu_context.clone()),
             context,
@@ -2315,6 +2318,7 @@ impl WgpuRenderer {
             self.atlas.clone(),
         )?;
         self.set_subpixel_layout(is_bgr);
+        crate::fast::renderer_options::RendererOptions::apply(fast_options, self);
 
         log::info!("GPU recovery complete");
         Ok(())
@@ -2626,14 +2630,14 @@ impl RenderingParameters {
         let gamma = env::var("ZED_FONTS_GAMMA")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(1.8_f32)
+            .unwrap_or(crate::fast::renderer_options::DEFAULT_FONTS_GAMMA)
             .clamp(1.0, 2.2);
         let gamma_ratios = get_gamma_correction_ratios(gamma);
 
         let grayscale_enhanced_contrast = env::var("ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(1.0_f32)
+            .unwrap_or(crate::fast::renderer_options::DEFAULT_GRAYSCALE_ENHANCED_CONTRAST)
             .max(0.0);
 
         let subpixel_enhanced_contrast = env::var("ZED_FONTS_SUBPIXEL_ENHANCED_CONTRAST")

@@ -10,6 +10,7 @@ pub use fast::app_context::{WgpuAppContext, WgpuContextGeneration, app_context};
 pub use fast::dynamic_textures::WgpuDynamicTexture;
 #[cfg(not(target_family = "wasm"))]
 pub use fast::native_surface::WgpuSurfaceSource;
+pub use fast::renderer_options::WgpuTextRenderingParams;
 pub use wgpu;
 pub use wgpu_atlas::*;
 pub use wgpu_context::*;

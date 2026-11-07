@@ -260,6 +260,13 @@ No application-specific timeline policy belongs here.
   `replace_surface_from_source`. Upstream only builds surfaces from raw
   window handles, while DirectComposition visuals and `CAMetalLayer`s need
   surfaces the platform creates, on whichever instance owns the device.
+  `WgpuRenderer` also gains `set_clear_color`, `set_text_rendering_params`
+  (with the exported `WgpuTextRenderingParams`) and `set_color_space`, which
+  those platforms' renderers set from the OS (an opaque clear color under a
+  composition swap chain's fixed alpha mode, DirectWrite's text parameters,
+  Display P3), and a `test-support` `render_to_image` for their visual tests.
+  On Apple targets the default font gamma is 1.0 and the grayscale contrast
+  0.0, because Core Text coverage is already gamma-adjusted.
 
 When the check fails, move the change into a `fast/` module and leave a hook
 behind that names it; use `git diff <import_commit> -- <file>` to see what
