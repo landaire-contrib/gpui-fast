@@ -232,3 +232,56 @@ fn gpu_written_textures_are_owned_clipped_and_context_local(cx: &mut gpui::TestA
         })
         .unwrap();
 }
+
+/// Linear color written through the sRGB view is stored sRGB-encoded, and the
+/// sprite pass samples the stored bytes as it samples an image's.
+#[gpui::test]
+fn gpu_written_textures_accept_linear_color_through_an_srgb_view(cx: &mut gpui::TestAppContext) {
+    let (context, _) = WgpuContext::new_headless().expect("GPU required");
+    let mut renderer = WgpuHeadlessRenderer::new().unwrap();
+    let owner = Arc::new(
+        context
+            .create_dynamic_texture(size(DevicePixels(16), DevicePixels(16)))
+            .unwrap(),
+    );
+    assert_eq!(owner.format(), context.color_texture_format());
+    let Some(srgb_format) = owner.srgb_view_format() else {
+        eprintln!("skipping: the adapter cannot render through an sRGB view");
+        return;
+    };
+    assert_eq!(srgb_format, owner.format().add_srgb_suffix());
+    let window = cx.update(|cx| {
+        cx.open_window(Default::default(), |_, cx| {
+            cx.new(|_| Showcase(Arc::downgrade(&owner)))
+        })
+        .unwrap()
+    });
+    window
+        .update(cx, |_, window, _| {
+            owner.render_srgb(window, |view| {
+                assert_eq!(view.texture().format(), owner.format());
+                let gray = wgpu::Color {
+                    r: 0.5,
+                    g: 0.5,
+                    b: 0.5,
+                    a: 1.0,
+                };
+                clear(&context, view, gray);
+                Ok(())
+            })
+        })
+        .unwrap()
+        .unwrap();
+    window
+        .update(cx, |_, window, cx| {
+            window.draw(cx).clear(cx);
+            let scale = window.scale_factor();
+            let side = DevicePixels((64. * scale) as i32);
+            let image = renderer
+                .render_scene_to_image(window.painted_scene(), size(side, side))
+                .unwrap();
+            // sRGB encoding of linear 0.5.
+            pixel(&image, scale, 24., 40., [188, 188, 188, 255]);
+        })
+        .unwrap();
+}

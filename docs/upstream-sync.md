@@ -234,6 +234,10 @@ No application-specific timeline policy belongs here.
   that same texture, with no upload or transfer copy. A successful write
   refreshes the window and advances the content version for retained views
   and scroll-layer tiles.
+  `render_srgb`, `format` and `srgb_view_format` let a producer that
+  computes linear color, such as a lit 3D scene, write through an sRGB view
+  of the same texture where the device can reinterpret formats; GPUI keeps
+  sampling the plain view, as it samples image bytes.
 
   Each context owns its texture lookup table; clones share it, while a new
   device starts with an empty table. The owning handle removes its entry

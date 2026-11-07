@@ -37,14 +37,22 @@ impl TextureStore {
 pub struct WgpuDynamicTexture {
     context: WgpuContext,
     texture: DynamicTexture,
+    format: wgpu::TextureFormat,
+    srgb_view: Option<wgpu::TextureView>,
 }
 
 impl WgpuContext {
     /// Allocates a GPU-written dynamic texture on this context's device.
     ///
-    /// The view uses `color_texture_format()` and `RENDER_ATTACHMENT |
+    /// The texture uses `color_texture_format()` and `RENDER_ATTACHMENT |
     /// TEXTURE_BINDING`. There is no initial pixel upload. Render new contents
-    /// with `WgpuDynamicTexture::render`, then paint with its `paint` method.
+    /// with `WgpuDynamicTexture::render` (or `render_srgb`), then paint with
+    /// its `paint` method.
+    ///
+    /// Where the device can view a texture in another format, the texture
+    /// also allows the sRGB variant of its format as a render view, so a
+    /// producer can write linear color that is stored sRGB-encoded, as image
+    /// bytes are. GPUI samples the plain view either way.
     pub fn create_dynamic_texture(&self, size: Size<DevicePixels>) -> Result<WgpuDynamicTexture> {
         anyhow::ensure!(!self.device_lost(), "dynamic texture device is lost");
         let limit = self.device.limits().max_texture_dimension_2d;
@@ -55,6 +63,8 @@ impl WgpuContext {
                 && size.height.0 as u32 <= limit,
             "dynamic texture size must be positive and within the device's {limit} pixel limit"
         );
+        let format = self.color_texture_format();
+        let srgb_format = self.srgb_view_format(format);
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("dynamic_texture"),
             size: wgpu::Extent3d {
@@ -65,9 +75,16 @@ impl WgpuContext {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: self.color_texture_format(),
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
+            view_formats: srgb_format.as_slice(),
+        });
+        let srgb_view = srgb_format.map(|format| {
+            target.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("dynamic_texture_srgb_view"),
+                format: Some(format),
+                ..Default::default()
+            })
         });
         let texture = DynamicTexture::new_gpu(size)?;
         self.fast_dynamic_textures
@@ -77,7 +94,28 @@ impl WgpuContext {
         Ok(WgpuDynamicTexture {
             context: self.clone(),
             texture,
+            format,
+            srgb_view,
         })
+    }
+
+    /// The sRGB view format a dynamic texture of `format` can be rendered
+    /// through on this device, if any. GLES and WebGL cannot reinterpret a
+    /// texture's format.
+    fn srgb_view_format(&self, format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
+        let srgb = format.add_srgb_suffix();
+        (srgb != format
+            && self
+                .adapter
+                .get_downlevel_capabilities()
+                .flags
+                .contains(wgpu::DownlevelFlags::VIEW_FORMATS)
+            && self
+                .adapter
+                .get_texture_format_features(srgb)
+                .allowed_usages
+                .contains(wgpu::TextureUsages::RENDER_ATTACHMENT))
+        .then_some(srgb)
     }
 }
 
@@ -97,18 +135,52 @@ impl WgpuDynamicTexture {
         window: &mut Window,
         render: impl FnOnce(&wgpu::TextureView) -> Result<T>,
     ) -> Result<T> {
+        let view = self.live_view()?;
+        let result = render(&view)?;
+        window.refresh_dynamic_texture(self.texture)?;
+        Ok(result)
+    }
+
+    /// Like [`Self::render`], through the texture's sRGB view: shader output
+    /// in linear color is stored sRGB-encoded, and GPUI composites it like an
+    /// image. Fails where [`Self::srgb_view_format`] is `None`.
+    pub fn render_srgb<T>(
+        &self,
+        window: &mut Window,
+        render: impl FnOnce(&wgpu::TextureView) -> Result<T>,
+    ) -> Result<T> {
+        let srgb_view = self
+            .srgb_view
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("this device cannot render through an sRGB view"))?;
+        self.live_view()?;
+        let result = render(srgb_view)?;
+        window.refresh_dynamic_texture(self.texture)?;
+        Ok(result)
+    }
+
+    /// The texture's format: the format of the view `render` passes and of
+    /// the view GPUI samples.
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    /// The format of the view `render_srgb` passes, for building pipelines
+    /// and multisampled attachments that resolve into it. `None` where the
+    /// device cannot reinterpret texture formats (GLES, WebGL).
+    pub fn srgb_view_format(&self) -> Option<wgpu::TextureFormat> {
+        self.srgb_view.as_ref().map(|_| self.format.add_srgb_suffix())
+    }
+
+    fn live_view(&self) -> Result<wgpu::TextureView> {
         anyhow::ensure!(
             !self.context.device_lost(),
             "dynamic texture device is lost"
         );
-        let view = self
-            .context
+        self.context
             .fast_dynamic_textures
             .view(self.texture.id())
-            .ok_or_else(|| anyhow::anyhow!("dynamic texture was removed"))?;
-        let result = render(&view)?;
-        window.refresh_dynamic_texture(self.texture)?;
-        Ok(result)
+            .ok_or_else(|| anyhow::anyhow!("dynamic texture was removed"))
     }
 
     /// Paints with the window's current clipping, opacity and painter order.
