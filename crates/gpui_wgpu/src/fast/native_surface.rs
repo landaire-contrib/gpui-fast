@@ -267,9 +267,12 @@ impl WgpuRenderer {
                 anyhow::bail!("Cannot replace the surface: GPU resources have been released")
             }
         };
+        // The new surface may not support the old color space; check it again.
+        self.surface_config.color_space = wgpu::SurfaceColorSpace::Auto;
         surface.configure(&core.resources.device, &self.surface_config);
         core.resources.invalidate_intermediate_textures();
         self.state = RendererState::Ready { surface, core };
+        self.apply_color_space();
         Ok(())
     }
 }
