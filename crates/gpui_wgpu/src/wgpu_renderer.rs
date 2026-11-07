@@ -343,6 +343,9 @@ impl WgpuRenderer {
                 compositor_gpu,
             )?),
         };
+        if surface_configured {
+            crate::fast::app_context::publish(context);
+        }
 
         let atlas = Arc::new(WgpuAtlas::from_context(context));
 
@@ -2285,6 +2288,7 @@ impl WgpuRenderer {
                 &config,
                 self.compositor_gpu,
             )?;
+            crate::fast::app_context::publish(&new_context);
             *gpu_context.borrow_mut() = Some(new_context);
             surface
         } else {

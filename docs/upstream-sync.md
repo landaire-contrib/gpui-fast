@@ -243,6 +243,15 @@ No application-specific timeline policy belongs here.
   are unchanged; CPU updates refuse GPU-written metadata. A native Metal
   producer interface is outside this extension.
 
+- The window renderer's wgpu context, for applications (`gpui_wgpu::fast::app_context`):
+  `gpui_wgpu` exports `app_context()`, `WgpuAppContext` and
+  `WgpuContextGeneration` on native targets. A `WgpuDynamicTexture` must come
+  from the context drawing the window, which the platform keeps private, so
+  without this an application cannot render into a texture GPUI samples. The
+  renderer publishes the context it creates for the first window and the one
+  it creates after device loss; the generation tells the application to
+  recreate its GPU objects.
+
 When the check fails, move the change into a `fast/` module and leave a hook
 behind that names it; use `git diff <import_commit> -- <file>` to see what
 differs.
