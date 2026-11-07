@@ -42,6 +42,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The runner has no GPU, and wgpu finds no usable adapter with the WARP
+      # its Windows image ships with. Install the WARP release wgpu's own CI uses
+      # next to the test executables, which Direct3D 12 loads in its place
+      # (after rust-cache, which restores target/).
+      - name: Install WARP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl.exe -L --retry 5 -o warp.zip https://www.nuget.org/api/v2/package/Microsoft.Direct3D.WARP/1.0.20
+          New-Item -ItemType Directory -Force target/warp, target/debug/deps | Out-Null
+          tar -xf warp.zip -C target/warp build/native/bin/x64/d3d10warp.dll
+          Copy-Item target/warp/build/native/bin/x64/d3d10warp.dll target/debug/
+          Copy-Item target/warp/build/native/bin/x64/d3d10warp.dll target/debug/deps/
+          Remove-Item -Recurse warp.zip, target/warp
+
       - name: Test gpui
         run: cargo test -p gpui --features test-support
 
