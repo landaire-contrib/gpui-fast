@@ -162,7 +162,7 @@ unchanged, and a new entry needs as good a reason.
   textures. Reserved ids from `0xF100_0000` identify rounded overflow groups
   with `tile_size = 0`; their drawable scene carries padding-edge geometry
   in a non-composited frame keyed by `u32::MAX`. The private wire format lives
-  in `fast::rounded_clip_scene`; Metal, WGPU and Direct3D evaluate the clip
+  in `fast::rounded_clip_scene`; Metal and WGPU evaluate the clip
   stack directly without intermediate render targets.
 - `crates/gpui/Cargo.toml` names this repository and sets `publish = false`.
 - Window composition, the API of
@@ -316,6 +316,19 @@ commit our copy was taken from is `zed_commit` in `UPSTREAM`, and
    upstream changed in the original (`git diff <old vendor commit> <new vendor
    commit> -- <file>`) and port it into our copy by hand. The merge won't
    conflict on those files, so this step is easy to forget.
+
+   `gpui_windows`' `directx_renderer` module is one of them: windows draw
+   through `gpui_wgpu` on Direct3D 12 (`gpui_windows/src/fast/renderer.rs`),
+   so upstream's Direct3D 11 renderer (`directx_renderer.rs`) and its atlas
+   (`directx_atlas.rs`, whose `mod` line is removed) are kept as upstream
+   has them but not compiled. `build.rs` is upstream's too, and release
+   builds still compile `shaders.hlsl` with `fxc` next to the color glyph
+   shaders. Port only what our `fast/directx_renderer.rs` keeps of the
+   original: DirectWrite's rendering parameters (`get_font_info`), the color
+   glyph shaders, and the GPU description (`gpu_specs` with its NVIDIA, AMD
+   and DXGI driver version queries). A rendering fix upstream makes to its
+   Direct3D 11 renderer belongs in `gpui_wgpu`, if that renderer needs it
+   too.
 4. Update `zed_commit` and `import_commit` in `UPSTREAM` to the new zed commit
    and the new vendor commit, and add or remove entries under `tracked` if zed
    added or removed crates we use.

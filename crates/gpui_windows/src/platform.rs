@@ -440,6 +440,7 @@ impl WindowsPlatform {
             text_system.release_gpu();
         }
         self.inner.state.directx_devices.borrow_mut().take();
+        crate::fast::renderer::release_gpu();
     }
 
     fn begin_vsync_thread(&self) {
@@ -476,6 +477,7 @@ impl WindowsPlatform {
                     }
                     if check_device_lost(&directx_device.device)
                         || invalidate_devices.fetch_and(false, Ordering::Acquire)
+                        || crate::fast::renderer::take_device_loss()
                     {
                         if let Err(err) = handle_gpu_device_lost(
                             &mut directx_device,

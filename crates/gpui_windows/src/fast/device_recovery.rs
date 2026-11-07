@@ -3,21 +3,23 @@
 //! Upstream treats any failed resize as a lost device, and panics when a window's renderer
 //! cannot be rebuilt on the devices the platform recreated. Both crash in the field:
 //!
-//! - a resize that runs out of memory (`E_OUTOFMEMORY`) on a healthy device invalidates the
-//!   devices, and the rebuild then allocates the same size and fails the same way;
+//! - a resize that runs out of memory (`E_OUTOFMEMORY`) on a healthy device leaves the
+//!   surface without a swap chain, and drawing fails every frame;
 //! - after a GPU reset (`DXGI_ERROR_DEVICE_RESET`), the renderer's retries all reuse the one set
 //!   of devices the platform recreated, which a driver still recovering may lose again.
 //!
-//! So a resize is retried at the next frame unless the device is lost, a failed rebuild asks the
-//! platform for new devices a few times before giving up, and a renderer left without its
-//! devices or render target skips drawing instead of unwrapping them.
+//! So the surfaces are configured again before the next frame after a resize whose frame did
+//! not present, the frame is skipped while that fails, a failed rebuild asks the platform for
+//! new devices a few times before giving up, and a renderer left without its devices skips
+//! drawing.
 
 use std::sync::atomic::Ordering;
 
 use anyhow::Error;
 use gpui::{DevicePixels, Size};
 
-use crate::{DirectXDevices, DirectXRenderer, WindowsWindowInner};
+use crate::fast::renderer::WindowsRenderer;
+use crate::{DirectXDevices, WindowsWindowInner};
 
 /// How many times in a row a window asks the platform for new devices before it gives up.
 const MAX_FAILED_RECOVERIES: u32 = 5;
@@ -26,14 +28,17 @@ const MAX_FAILED_RECOVERIES: u32 = 5;
 pub(crate) struct RecoveryState {
     /// Rebuilds that failed since the window last recovered.
     failed_recoveries: u32,
-    /// The size a failed resize left the renderer without buffers for.
-    pending_resize: Option<Size<DevicePixels>>,
+    /// Whether the surfaces were resized since a frame last presented on all of them.
+    resized: bool,
+    /// Whether a frame after a resize did not present, which a surface wgpu failed to
+    /// configure causes: the surfaces are configured again before the next frame draws.
+    reconfigure: bool,
 }
 
 impl RecoveryState {
+    /// The renderer recovered, with surfaces configured anew.
     fn recovered(&mut self) {
-        self.failed_recoveries = 0;
-        self.pending_resize = None;
+        *self = Self::default();
     }
 
     /// Counts a failed rebuild; `false` once the window has used up its attempts.
@@ -45,48 +50,56 @@ impl RecoveryState {
 
 /// Forwarded to by `WindowsWindowInner::handle_size_change`.
 pub(crate) fn resize(window: &WindowsWindowInner, size: Size<DevicePixels>) {
-    resize_renderer(window, size, false);
-}
-
-/// Forwarded to by `WindowsWindowInner::draw_window`: retries a resize that failed.
-pub(crate) fn retry_resize(window: &WindowsWindowInner) {
-    let pending = window.state.renderer.borrow().fast_recovery.pending_resize;
-    if let Some(size) = pending {
-        resize_renderer(window, size, true);
-    }
-}
-
-fn resize_renderer(window: &WindowsWindowInner, size: Size<DevicePixels>, retry: bool) {
     let mut renderer = window.state.renderer.borrow_mut();
-    if renderer.fast_recovery.pending_resize.is_some() {
-        // `resize` skips the size it already holds, and it records the size before resizing.
-        renderer.width = 0;
+    if renderer.resize(size) {
+        renderer.fast_recovery.resized = true;
     }
-    let Err(error) = renderer.resize(size) else {
-        renderer.fast_recovery.pending_resize = None;
-        return;
-    };
-    if is_device_lost(&renderer) {
-        log::error!("Failed to resize renderer, invalidating devices: {error:#}");
-        renderer.fast_recovery.pending_resize = None;
-        window
-            .state
-            .invalidate_devices
-            .store(true, Ordering::Release);
-    } else {
+}
+
+/// Called before a frame draws: configures the surfaces again if a frame after a resize did
+/// not present. Returns `false`, and the frame is skipped, while that fails; the next frame
+/// retries it.
+pub(crate) fn prepare_frame(renderer: &mut WindowsRenderer) -> bool {
+    if !renderer.fast_recovery.reconfigure {
+        return true;
+    }
+
+    let reconfigured = renderer
+        .gpu
+        .reconfigure_surface()
+        .and_then(|()| crate::fast::composition::reconfigure(renderer));
+    if let Err(error) = reconfigured {
         log::error!(
-            "Failed to resize renderer to {}x{}, retrying at the next frame: {error:#}",
-            size.width.0,
-            size.height.0
+            "Failed to configure the window's surfaces at {}x{}, retrying at the next frame: \
+             {error:#}",
+            renderer.size.width.0,
+            renderer.size.height.0,
         );
-        renderer.fast_recovery.pending_resize = Some(size);
-        if retry {
-            // Retrying every frame would spin on a size that cannot be allocated yet.
-            return;
-        }
+        return false;
     }
-    drop(renderer);
-    crate::fast::frame_schedule::FrameRequest::request(&window.state.fast_frame_request);
+    renderer.fast_recovery.reconfigure = false;
+    renderer.commit_pending = true;
+    true
+}
+
+/// Called once a frame has drawn: shows the swap chains wgpu made once the base surface
+/// presented, and has the surfaces configured again if a frame after a resize did not present.
+pub(crate) fn finish_frame(
+    renderer: &mut WindowsRenderer,
+    base_presented: bool,
+    all_presented: bool,
+) {
+    let state = &mut renderer.fast_recovery;
+    if all_presented {
+        state.resized = false;
+    } else {
+        state.reconfigure |= state.resized;
+        // A surface wgpu skipped may have been configured again, with a new swap chain.
+        renderer.commit_pending = true;
+    }
+    if base_presented {
+        renderer.commit_if_pending();
+    }
 }
 
 /// Forwarded to by `WindowsWindowInner::handle_device_lost`: rebuilds the renderer on the
@@ -116,26 +129,9 @@ pub(crate) fn recover(window: &WindowsWindowInner, devices: &DirectXDevices) -> 
     false
 }
 
-/// Whether the renderer has the devices and the render target a frame draws with: a failed
-/// rebuild or resize leaves it without them until it recovers.
-pub(crate) fn can_draw(renderer: &DirectXRenderer) -> bool {
-    renderer.devices.is_some()
-        && renderer
-            .resources
-            .as_ref()
-            .is_some_and(|resources| resources.render_target_view.is_some())
-}
-
 /// Panics with the whole chain of `error`, which names the step that failed and its `HRESULT`.
 pub(crate) fn recovery_failed(error: Error) -> ! {
     panic!("Device lost: {error:#}");
-}
-
-fn is_device_lost(renderer: &DirectXRenderer) -> bool {
-    renderer
-        .devices
-        .as_ref()
-        .is_none_or(|devices| unsafe { devices.device.GetDeviceRemovedReason() }.is_err())
 }
 
 #[cfg(test)]
