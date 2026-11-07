@@ -240,6 +240,9 @@ them out afresh.
   shift (`fast::glyphs::quantize_origin`). On screen the result is unchanged.
 - Tiles are cleared with the baked background, so subpixel text blends exactly
   as it does on screen.
+- The quad shader's gradient dither is seeded from the position within the
+  quad, not on screen, so a gradient gets the same noise in a tile as in the
+  window.
 - Before any input other than the wheel reaches a layer that has moved since
   it was painted, the layer is repainted (`fast::layers::input`). Listeners,
   element state and anything handed to application code therefore hold
