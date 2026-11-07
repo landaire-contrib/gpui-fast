@@ -79,6 +79,11 @@ jobs:
           GPUI_REQUIRE_GPU: "1"
         run: cargo test -p gpui_wgpu --features test-support fast::dynamic_textures -- --nocapture
 
+      # Dev-dependencies enable the test-support features gpui_macos needs.
+      - name: Test the macOS platform on WGPU
+        if: runner.os == 'macOS'
+        run: cargo test -p gpui_macos
+
       - name: Test the Windows platform on WGPU
         if: runner.os == 'Windows'
         run: cargo test -p gpui_windows --features test-support

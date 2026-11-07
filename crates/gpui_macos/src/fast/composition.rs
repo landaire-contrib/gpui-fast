@@ -582,22 +582,17 @@ fn recover_renderers(state: &mut MacWindowState) -> bool {
     !window_lost
 }
 
-/// The frame request options the window's next display link frame needs
-/// because of how its renderers drew earlier frames, clearing that: a scene
-/// a renderer could not present is presented again, and a renderer that
-/// recovered from device loss, or cleared its atlas, has the scene repainted.
-pub(crate) fn take_redraw(state: &mut MacWindowState) -> gpui::RequestFrameOptions {
-    let redraw = state
-        .fast_composition
-        .gpui_surfaces
-        .values_mut()
-        .map(|surface| surface.renderer.take_redraw())
-        .fold(state.renderer.take_redraw(), Ord::max);
-    gpui::RequestFrameOptions {
-        require_presentation: redraw >= renderer::Redraw::Present,
-        force_render: redraw == renderer::Redraw::Repaint,
-        ..Default::default()
-    }
+/// The window's renderer and the renderer of each of its GPUI surfaces.
+pub(crate) fn renderers_mut(
+    state: &mut MacWindowState,
+) -> impl Iterator<Item = &mut renderer::Renderer> {
+    std::iter::once(&mut state.renderer).chain(
+        state
+            .fast_composition
+            .gpui_surfaces
+            .values_mut()
+            .map(|surface| &mut surface.renderer),
+    )
 }
 
 /// `PlatformWindow::enable_window_composition`: an AppKit window can always
