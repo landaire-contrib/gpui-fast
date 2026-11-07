@@ -9,20 +9,18 @@
 //! wgpu presents into it through `SurfaceTargetUnsafe::CoreAnimationLayer`.
 //!
 //! wgpu acquires each frame's drawable itself, so windows pace frames with
-//! the `CVDisplayLink` registry (`fast::metal_frames`). Frames that wgpu could
-//! not present (the window was occluded, the surface was being reconfigured)
-//! or that need repainting (the device was recovered) are requested again
+//! the `CVDisplayLink` registry (`fast::frames`). Frames that wgpu could not
+//! present (the window was occluded, the surface was being reconfigured) or
+//! that need repainting (the device was recovered) are requested again
 //! through [`Renderer::take_redraw`].
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 use gpui::{DevicePixels, Scene, Size};
 use gpui_wgpu::{GpuContext, WgpuAtlas, WgpuRenderer, WgpuSurfaceConfig, WgpuSurfaceSource, wgpu};
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2_quartz_core::{CAAutoresizingMask, CAMetalDrawable, CAMetalLayer};
+use objc2_quartz_core::{CAAutoresizingMask, CAMetalLayer};
 
 /// The GPU context shared by every window of the process.
 pub(crate) type Context = GpuContext;
@@ -41,6 +39,7 @@ pub(crate) fn new_renderer(
         overlay: false,
         display_p3: use_display_p3,
         redraw: Redraw::None,
+        presented: false,
     };
     renderer.apply_color_space();
     renderer.wgpu.set_clear_color(clear_color(transparent));
@@ -60,6 +59,7 @@ pub(crate) fn new_overlay_renderer(base: &Renderer) -> Result<Renderer> {
         overlay: true,
         display_p3: base.display_p3,
         redraw: Redraw::None,
+        presented: false,
     };
     renderer.apply_color_space();
     Ok(renderer)
@@ -85,38 +85,17 @@ pub(crate) struct Renderer {
     overlay: bool,
     display_p3: bool,
     redraw: Redraw,
+    /// Whether a frame was presented since [`Renderer::take_presented`].
+    presented: bool,
 }
 
 impl Renderer {
-    pub(crate) fn layer(&self) -> Option<&CAMetalLayer> {
-        Some(&self.layer.0)
-    }
-
     pub(crate) fn layer_ptr(&self) -> *mut CAMetalLayer {
         Retained::as_ptr(&self.layer.0).cast_mut()
     }
 
     pub(crate) fn sprite_atlas(&self) -> &Arc<WgpuAtlas> {
         self.wgpu.sprite_atlas()
-    }
-
-    /// Windows never attach a `CAMetalDisplayLink` (`fast::metal_frames`):
-    /// wgpu acquires drawables from the layer itself.
-    pub(crate) fn set_display_link_attached(&mut self, attached: bool) {
-        debug_assert!(
-            !attached,
-            "a CAMetalDisplayLink cannot drive a wgpu surface"
-        );
-    }
-
-    /// Hands `drawable` back unused: wgpu draws only into drawables it
-    /// acquires, and no display link hands this renderer any
-    /// (`fast::metal_frames`).
-    pub(crate) fn set_frame_drawable(
-        &mut self,
-        drawable: Option<Retained<ProtocolObject<dyn CAMetalDrawable>>>,
-    ) -> Option<Retained<ProtocolObject<dyn CAMetalDrawable>>> {
-        drawable
     }
 
     /// wgpu reads the layer's mode whenever it acquires a drawable, and
@@ -149,8 +128,9 @@ impl Renderer {
             }
             return;
         }
-        warn_about_paint_surfaces(scene);
-        if !self.wgpu.draw(scene) {
+        if self.wgpu.draw(scene) {
+            self.presented = true;
+        } else {
             self.request(Redraw::Present);
         }
         if self.wgpu.needs_redraw() {
@@ -195,6 +175,16 @@ impl Renderer {
     /// frames, clearing it.
     pub(crate) fn take_redraw(&mut self) -> Redraw {
         std::mem::take(&mut self.redraw)
+    }
+
+    /// Whether a later frame must draw or present again, without clearing it.
+    pub(crate) fn redraw_pending(&self) -> bool {
+        self.redraw != Redraw::None
+    }
+
+    /// Whether this renderer presented a frame since the last call.
+    pub(crate) fn take_presented(&mut self) -> bool {
+        std::mem::take(&mut self.presented)
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -267,18 +257,5 @@ fn clear_color(transparent: bool) -> wgpu::Color {
         wgpu::Color::TRANSPARENT
     } else {
         wgpu::Color::BLACK
-    }
-}
-
-/// `gpui_wgpu` draws no `PaintSurface` (a `CVPixelBuffer` painted with
-/// `gpui::surface`, as screen capture frames and video are): say so once
-/// rather than leave the element blank without a trace.
-fn warn_about_paint_surfaces(scene: &Scene) {
-    static WARNED: AtomicBool = AtomicBool::new(false);
-    if !scene.surfaces.is_empty() && !WARNED.swap(true, Ordering::Relaxed) {
-        log::warn!(
-            "gpui::surface elements (CVPixelBuffer content) are not drawn: \
-             the wgpu renderer does not support PaintSurface"
-        );
     }
 }

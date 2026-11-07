@@ -1382,7 +1382,7 @@ impl WindowsWindowInner {
             |(at, source)| (Some(at), source),
         );
         request_frame(RequestFrameOptions {
-            require_presentation: false,
+            require_presentation: crate::fast::renderer::take_present_pending(self),
             force_render,
             signal_at,
             signal_source,

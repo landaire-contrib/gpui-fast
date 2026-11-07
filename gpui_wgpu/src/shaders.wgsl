@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 /* Functions useful for debugging:
 
 // A heat map color for debugging (blue -> cyan -> green -> yellow -> red).
@@ -428,6 +429,14 @@ fn prepare_gradient_color(tag: u32, color_space: u32,
     return result;
 }
 
+// Triangular noise against gradient banding, seeded within the quad so tiles match the window.
+fn gradient_dither(position: vec2<f32>, origin: vec2<f32>) -> vec4<f32> {
+    let seed = (position - origin) * 0.6180339887;
+    let tri = fract(sin(dot(seed, vec2<f32>(12.9898, 78.233))) * 43758.5453)
+        + fract(sin(dot(seed, vec2<f32>(39.3460, 11.135))) * 24634.6345) - 1.0;
+    return vec4<f32>(vec3<f32>(tri * 2.0 / 255.0), tri * 3.0 / 255.0);
+}
+
 fn gradient_color(background: Background, position: vec2<f32>, bounds: Bounds,
     solid_color: vec4<f32>, color0: vec4<f32>, color1: vec4<f32>) -> vec4<f32> {
     var background_color = vec4<f32>(0.0);
@@ -477,6 +486,7 @@ fn gradient_color(background: Background, position: vec2<f32>, bounds: Bounds,
                     background_color = oklab_to_linear_srgb(oklab_color);
                 }
             }
+            background_color += gradient_dither(position, bounds.origin);
         }
         case 2u: {
             // pattern slash

@@ -13,4 +13,4 @@
 //! `gpui_apple::metal_renderer`.
 
 pub(crate) mod composition;
-pub(crate) mod metal_frames;
+pub(crate) mod frames;

@@ -59,7 +59,7 @@ pub(crate) fn resize(window: &WindowsWindowInner, size: Size<DevicePixels>) {
 
 /// Called before a frame draws: configures the surfaces again if a frame after a resize did
 /// not present. Returns `false`, and the frame is skipped, while that fails; the next frame
-/// retries it.
+/// retries it, presenting the scene again.
 pub(crate) fn prepare_frame(renderer: &mut WindowsRenderer) -> bool {
     if !renderer.fast_recovery.reconfigure {
         return true;
@@ -76,6 +76,7 @@ pub(crate) fn prepare_frame(renderer: &mut WindowsRenderer) -> bool {
             renderer.size.width.0,
             renderer.size.height.0,
         );
+        renderer.present_pending = true;
         return false;
     }
     renderer.fast_recovery.reconfigure = false;
@@ -84,7 +85,9 @@ pub(crate) fn prepare_frame(renderer: &mut WindowsRenderer) -> bool {
 }
 
 /// Called once a frame has drawn: shows the swap chains wgpu made once the base surface
-/// presented, and has the surfaces configured again if a frame after a resize did not present.
+/// presented. A frame that did not present on every surface (a timeout, an occluded or
+/// outdated surface, a failed configure) has the next frame present the scene again, and the
+/// surfaces configured again first if it followed a resize.
 pub(crate) fn finish_frame(
     renderer: &mut WindowsRenderer,
     base_presented: bool,
@@ -97,6 +100,7 @@ pub(crate) fn finish_frame(
         state.reconfigure |= state.resized;
         // A surface wgpu skipped may have been configured again, with a new swap chain.
         renderer.commit_pending = true;
+        renderer.present_pending = true;
     }
     if base_presented {
         renderer.commit_if_pending();

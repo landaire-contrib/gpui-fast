@@ -67,7 +67,7 @@ pub(crate) struct GlobalParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct PodBounds {
+pub(crate) struct PodBounds {
     origin: [f32; 2],
     size: [f32; 2],
 }
@@ -83,9 +83,9 @@ impl From<Bounds<ScaledPixels>> for PodBounds {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct SurfaceParams {
-    bounds: PodBounds,
-    content_mask: PodBounds,
+pub(crate) struct SurfaceParams {
+    pub(crate) bounds: PodBounds,
+    pub(crate) content_mask: PodBounds,
 }
 
 #[repr(C)]
@@ -135,7 +135,7 @@ pub(crate) struct WgpuPipelines {
     pub(crate) subpixel_sprites: Option<wgpu::RenderPipeline>,
     pub(crate) poly_sprites: wgpu::RenderPipeline,
     #[allow(dead_code)]
-    surfaces: wgpu::RenderPipeline,
+    pub(crate) surfaces: wgpu::RenderPipeline,
 }
 
 /// One frame allocation of instance data, ready to bind.
@@ -163,7 +163,7 @@ pub(crate) struct WgpuBindGroupLayouts {
     pub(crate) globals: wgpu::BindGroupLayout,
     pub(crate) instances: wgpu::BindGroupLayout,
     pub(crate) texture: wgpu::BindGroupLayout,
-    surfaces: wgpu::BindGroupLayout,
+    pub(crate) surfaces: wgpu::BindGroupLayout,
 }
 
 /// Shared GPU context reference, used to coordinate device recovery across multiple windows.
@@ -205,7 +205,7 @@ struct CachedTextureBindGroup {
 }
 
 impl WgpuResources {
-    pub(crate) fn invalidate_intermediate_textures(&mut self) {
+    fn invalidate_intermediate_textures(&mut self) {
         self.path_intermediate_texture = None;
         self.path_intermediate_view = None;
         self.path_msaa_texture = None;
@@ -258,8 +258,8 @@ pub struct WgpuRenderer {
     pub(crate) state: RendererState,
     pub(crate) surface_config: wgpu::SurfaceConfiguration,
     pub(crate) atlas: Arc<WgpuAtlas>,
-    pub(crate) transparent_alpha_mode: wgpu::CompositeAlphaMode,
-    pub(crate) opaque_alpha_mode: wgpu::CompositeAlphaMode,
+    transparent_alpha_mode: wgpu::CompositeAlphaMode,
+    opaque_alpha_mode: wgpu::CompositeAlphaMode,
     max_texture_size: u32,
     pub(crate) is_bgr: bool,
     failed_frame_count: u32,
@@ -1477,6 +1477,7 @@ impl WgpuRendererCore {
         );
 
         self.atlas.before_frame();
+        crate::fast::dynamic_textures::flush_uploads(&self.resources.device);
         self.ensure_intermediate_textures(size);
 
         let gamma_params = GammaParams {
@@ -1645,7 +1646,9 @@ impl WgpuRendererCore {
                     }
                     // Surfaces are macOS-only for video playback and are not
                     // implemented by the WGPU renderer.
-                    PrimitiveBatch::Surfaces(_surfaces) => {}
+                    PrimitiveBatch::Surfaces(range) => {
+                        crate::fast::paint_surface::draw_core(self, scene, range, &mut pass)
+                    }
                 }
             }
         }
@@ -2273,6 +2276,7 @@ impl WgpuRenderer {
 
         let surface = if needs_new_context {
             log::warn!("GPU device lost, recreating context...");
+            crate::fast::app_context::device_lost();
 
             // Drop old resources to release Arc<Device>/Arc<Queue> and GPU resources
             self.state = RendererState::Released;
