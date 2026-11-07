@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 // Storage-buffer instance transport. Concatenated after `shaders.wgsl` on backends
 // with storage buffer support; `shaders_webgl.wgsl` is the WebGL2 counterpart that
 // decodes the same records from a texture instead.
@@ -23,6 +24,11 @@ fn load_shadow(instance_id: u32) -> Shadow {
 
 fn load_path_vertex(vertex_id: u32) -> PathRasterizationVertex {
     return b_path_vertices[vertex_id];
+}
+
+// Each draw's path vertices start at a multiple of three in the binding.
+fn path_st(vertex_id: u32, position: vec2<f32>, interpolated: vec2<f32>) -> PathSt {
+    return path_st_exact(vertex_id - vertex_id % 3u, position);
 }
 
 fn load_path_sprite(instance_id: u32) -> PathSprite {

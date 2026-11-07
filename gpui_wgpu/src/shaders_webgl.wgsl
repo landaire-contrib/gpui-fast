@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 @group(1) @binding(0) var t_instances: texture_2d<u32>;
 
 // Each texel of `t_instances` packs four 32-bit words of instance data. Most
@@ -214,6 +215,12 @@ fn load_path_vertex(vertex_id: u32) -> PathRasterizationVertex {
         read_background(&cursor),
         read_bounds(&cursor),
     );
+}
+
+// Draws start anywhere in the shared texture and WebGL has no first provoking
+// vertex, so the triangle is unknown here: use the interpolated values.
+fn path_st(vertex_id: u32, position: vec2<f32>, interpolated: vec2<f32>) -> PathSt {
+    return PathSt(interpolated, dpdx(interpolated), dpdy(interpolated));
 }
 
 fn load_path_sprite(instance_id: u32) -> PathSprite {
