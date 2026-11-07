@@ -232,8 +232,11 @@ No application-specific timeline policy belongs here.
   Its `WgpuDynamicTexture` owner provides `render` and `paint`: the producer
   submits on the shared queue, then the ordinary sprite pipeline samples
   that same texture, with no upload or transfer copy. A successful write
-  refreshes the window and advances the content version for retained views
-  and scroll-layer tiles.
+  advances the content version and, outside a frame, schedules a frame
+  that draws again only the retained views and scroll-layer tiles that
+  painted the texture (they read a per-texture `StateVersion` when they
+  paint it); a texture nothing painted yet still refreshes the window.
+  CPU updates through `Window::update_dynamic_texture` behave the same.
   `render_srgb`, `format` and `srgb_view_format` let a producer that
   computes linear color, such as a lit 3D scene, write through an sRGB view
   of the same texture where the device can reinterpret formats; GPUI keeps
