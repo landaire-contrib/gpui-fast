@@ -1009,7 +1009,6 @@ impl MacWindow {
         renderer_context: renderer::Context,
         marker: MainThreadMarker,
     ) -> Result<Self> {
-        let fast_renderer_context = renderer_context.clone();
         autoreleasepool(|_| unsafe {
             let renderer = renderer::new_renderer(renderer_context, false, use_display_p3)?;
             let allows_automatic_window_tabbing = tabbing_identifier.is_some();
@@ -1112,16 +1111,15 @@ impl MacWindow {
             let native_view: *mut AnyObject = msg_send![native_view, initWithFrame: content_bounds];
             assert!(!native_view.is_null());
 
-            let metal_frames = MetalFrameSource::is_available().then(Rc::<MetalFrames>::default);
+            let metal_frames =
+                crate::fast::metal_frames::available().then(Rc::<MetalFrames>::default);
             let state = Rc::new(Mutex::new(MacWindowState {
                 handle,
                 foreground_executor,
                 background_executor,
                 native_window,
                 native_view: NonNull::new_unchecked(native_view),
-                fast_composition: crate::fast::composition::MacComposition::new(
-                    fast_renderer_context,
-                ),
+                fast_composition: crate::fast::composition::MacComposition::new(),
                 blurred_view: None,
                 background_appearance: WindowBackgroundAppearance::Opaque,
                 cursor_style: CursorStyle::Arrow,
@@ -3453,11 +3451,12 @@ extern "C" fn step(view: *mut c_void) {
             (None, FrameRequestSource::NativeCallback),
             |(at, source)| (Some(at), source),
         );
+        let fast_redraw = crate::fast::composition::take_redraw(&mut lock);
         drop(lock);
         callback(RequestFrameOptions {
             signal_at,
             signal_source,
-            ..Default::default()
+            ..fast_redraw
         });
         window_state.lock().request_frame_callback = Some(callback);
     }

@@ -51,17 +51,17 @@ jobs:
 
       # Scroll layer tiles must match drawing directly, byte for byte, on
       # each renderer; these run on the runner's GPU.
-      - name: Test scroll layers on Metal
-        if: runner.os == 'macOS'
-        run: cargo test -p gpui_apple fast::layers -- --nocapture
+      - name: Test scroll layers on WGPU (Metal, DX12)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        run: cargo test -p gpui_wgpu --features test-support fast::layers -- --nocapture
 
-      - name: Test GPU-written dynamic textures on WGPU
-        if: runner.os == 'macOS'
+      - name: Test dynamic textures on WGPU (Metal, DX12)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
         run: cargo test -p gpui_wgpu --features test-support fast::dynamic_textures -- --nocapture
 
-      - name: Test scroll layers on Direct3D
+      - name: Test the Windows platform on WGPU
         if: runner.os == 'Windows'
-        run: cargo test -p gpui_windows --features test-support fast::layers -- --nocapture
+        run: cargo test -p gpui_windows --features test-support
 
       - name: Check gpui_perf
         run: cargo check -p gpui_perf --all-targets

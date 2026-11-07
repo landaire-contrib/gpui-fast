@@ -8,6 +8,8 @@ pub use gpui_web::WebBackendPreference;
 
 use std::rc::Rc;
 
+mod fast;
+
 /// Returns a background executor for the current platform.
 pub fn background_executor() -> gpui::BackgroundExecutor {
     current_platform(true).background_executor()
@@ -101,23 +103,7 @@ pub fn bench_text_system() -> std::sync::Arc<dyn gpui::PlatformTextSystem> {
 #[cfg(any(feature = "bench-support", feature = "test-support"))]
 pub fn current_headless_renderer() -> anyhow::Result<Option<Box<dyn gpui::PlatformHeadlessRenderer>>>
 {
-    #[cfg(target_os = "macos")]
-    {
-        Ok(Some(Box::new(
-            gpui_macos::metal_renderer::MetalHeadlessRenderer::new()?,
-        )))
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        gpui_wgpu::WgpuHeadlessRenderer::new()
-            .map(|renderer| Some(Box::new(renderer) as Box<dyn gpui::PlatformHeadlessRenderer>))
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        Ok(None)
-    }
+    crate::fast::headless::current_headless_renderer()
 }
 
 #[cfg(all(test, target_os = "macos"))]

@@ -26,3 +26,4 @@ crates/gpui_linux/src/linux/wayland/window.rs hunk=19 # WaylandWindow's four win
 crates/gpui_linux/src/linux/x11/window.rs hunk=19 # X11Window's four window composition methods (zed-industries/zed#62379), each a body forwarding to fast::composition::x11, which rustfmt spreads over three or six lines
 
 crates/gpui_linux/src/linux/x11/client.rs added=46 # existing overlay input hook plus native pointer recipient, coordinate and focus-id hooks; all routing logic stays in fast::composition::x11
+crates/gpui_macos/src/display_link.rs removed=25 # the test of the Metal renderer under an invalidated CAMetalDisplayLink, and its imports, go with that renderer: macOS windows draw through gpui_wgpu (fast/renderer.rs) and never attach a CAMetalDisplayLink (fast::metal_frames)

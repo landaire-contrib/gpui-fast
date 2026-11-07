@@ -1,9 +1,14 @@
 #![allow(clippy::disallowed_methods, reason = "build scripts are exempt")]
 
+#[path = "src/fast/metal_renderer_cfg.rs"]
+mod fast_metal_renderer_cfg;
 #[path = "src/fast/rounded_clip_shader.rs"]
 mod fast_rounded_clip_shader;
 
 fn main() {
+    if !fast_metal_renderer_cfg::configure() {
+        return;
+    }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     apple_build::run();
 }

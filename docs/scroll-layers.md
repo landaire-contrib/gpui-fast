@@ -15,8 +15,8 @@ drawing as it does without layers, and how to verify and measure layers.
 
 ## Where layers apply
 
-- Linux and Windows, on the wgpu renderer, and macOS, on the Metal renderer.
-  Everywhere else layers are compiled out
+- Linux, Windows and macOS, on the wgpu renderer. Everywhere else layers are
+  compiled out
   (`fast::layers::COMPILED`), and nothing changes.
 - Scrolling `div`s (`overflow_x_scroll` / `overflow_y_scroll`), whether their
   content is a child view or plain elements in the same view.
@@ -240,8 +240,6 @@ them out afresh.
   shift (`fast::glyphs::quantize_origin`). On screen the result is unchanged.
 - Tiles are cleared with the baked background, so subpixel text blends exactly
   as it does on screen.
-- Metal's gradient dither is seeded from the position within the quad, not on
-  screen, so a gradient gets the same noise in a tile as in the window.
 - Before any input other than the wheel reaches a layer that has moved since
   it was painted, the layer is repainted (`fast::layers::input`). Listeners,
   element state and anything handed to application code therefore hold
@@ -263,9 +261,7 @@ them out afresh.
   the positions listeners observe.
 - `cargo test -p gpui_wgpu` compares rasterized and composited tiles with
   direct drawing, byte for byte, on a surfaceless device.
-- `cargo test -p gpui_apple fast::layers` does the same on macOS with a
-  headless Metal renderer (`crates/gpui_apple/src/fast/layers/`), which draws
-  tiles as the wgpu renderer does.
+  CI runs the same tests on macOS (Metal) and Windows (DX12) runners.
 - `cargo run -p gpui_perf --release -- --headless --verify` also runs the
   scroll scenarios with layers on and off.
 

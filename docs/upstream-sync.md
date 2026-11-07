@@ -178,8 +178,7 @@ unchanged, and a new entry needs as good a reason.
   composition working; `Scene` gains `is_empty` and `replay_balanced`, and
   `ComposedScene::layer_scene`, ours, cuts one layer's scene out for a
   renderer; `Window` gains `enable_window_composition` and
-  `with_composition_surface`; `gpui_apple` exports `new_overlay_renderer`
-for `gpui_macos`, `WgpuRenderer` gains `new_sharing_atlas` and
+  `with_composition_surface`; `WgpuRenderer` gains `new_sharing_atlas` and
 `replace_surface_sharing_context` for `gpui_linux`, and `Background` gains
 `is_opaque` so `gpui_linux` cuts only opaque content out of native surfaces. It all lives in `fast::composition`, so when
   upstream merges its version, the sync replaces ours with it. Two things
@@ -246,9 +245,9 @@ No application-specific timeline policy belongs here.
   device starts with an empty table. The owning handle removes its entry
   and retires its core metadata on drop. GPU objects never enter the global
   upload platform, so this ownership works on browser WebGPU and WebGL as
-  well as native wgpu. The existing Metal upload backend and its installer
-  are unchanged; CPU updates refuse GPU-written metadata. A native Metal
-  producer interface is outside this extension.
+  well as native wgpu. The Metal upload backend and its installer build only
+  for iOS, with the Metal renderer; CPU updates refuse GPU-written metadata.
+  A native Metal producer interface is outside this extension.
   On native wgpu, publishing a window context (see below) installs a CPU
   upload backend: `Window::create_dynamic_texture` textures are wgpu
   textures on that context's device, written with `Queue::write_texture`
@@ -286,6 +285,28 @@ No application-specific timeline policy belongs here.
   Display P3), and a `test-support` `render_to_image` for their visual tests.
   On Apple targets the default font gamma is 1.0 and the grayscale contrast
   0.0, because Core Text coverage is already gamma-adjusted.
+
+- macOS windows draw through `gpui_wgpu` (`gpui_macos/src/fast/renderer.rs`,
+  a `CAMetalLayer` per window and per composition overlay). `gpui_macos` no
+  longer exports `metal_renderer` (`MetalHeadlessRenderer`,
+  `PathRasterizationVertex`, `PathSprite`, `SurfaceBounds`), and
+  `gpui_platform::current_headless_renderer` returns `gpui_wgpu`'s
+  `WgpuHeadlessRenderer` on macOS and Windows (DX12) as on Linux
+  (`gpui_platform::fast::headless`). `gpui_apple` builds its Metal renderer,
+  atlas, shaders and Metal dynamic texture backend only for iOS: its build
+  script sets the `fast_metal_renderer` cfg there
+  (`gpui_apple/src/fast/metal_renderer_cfg.rs`), so a macOS build runs no
+  `xcrun metal` and can be checked from any host, and `gpui_macos`'s
+  `runtime_shaders` feature has no effect. Windows pace frames with the
+  `CVDisplayLink` registry on every macOS version, never a
+  `CAMetalDisplayLink`, because wgpu acquires the layer's drawables itself
+  (`gpui_macos::fast::metal_frames`). `gpui::surface` content
+  (`PaintSurface`, a `CVPixelBuffer`, as macOS screen capture frames are
+  delivered) is not drawn on macOS: `gpui_wgpu` has no surface pipeline, and
+  the renderer logs a warning the first time a scene holds one. On a sync,
+  `gpui_macos.rs` keeps redirecting its `renderer` module to
+  `fast/renderer.rs` in place of `gpui_apple::metal_renderer`: when upstream's
+  `gpui_macos` starts calling a `MetalRenderer` method, add it there.
 
 When the check fails, move the change into a `fast/` module and leave a hook
 behind that names it; use `git diff <import_commit> -- <file>` to see what

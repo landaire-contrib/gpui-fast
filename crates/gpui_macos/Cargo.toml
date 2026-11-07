@@ -14,8 +14,8 @@ doctest = false
 
 [features]
 default = ["gpui/default"]
-bench-support = ["gpui/bench-support", "gpui_apple/bench-support"]
-test-support = ["gpui/test-support", "gpui_apple/test-support"]
+bench-support = ["gpui/bench-support", "gpui_apple/bench-support", "gpui_wgpu/bench-support"]
+test-support = ["gpui/test-support", "gpui_apple/test-support", "gpui_wgpu/test-support"]
 runtime_shaders = ["gpui_apple/runtime_shaders"]
 font-kit = ["gpui_apple/font-kit"]
 screen-capture = ["gpui/screen-capture", "dep:objc2-core-media", "dep:objc2-screen-capture-kit"]
@@ -38,6 +38,7 @@ foreign-types.workspace = true
 futures.workspace = true
 gpui_apple.workspace = true
 gpui_util.workspace = true
+gpui_wgpu.workspace = true
 image.workspace = true
 itertools.workspace = true
 log.workspace = true
@@ -65,3 +66,4 @@ uuid.workspace = true
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 gpui_apple = { workspace = true, features = ["test-support"] }
+gpui_wgpu = { workspace = true, features = ["test-support"] }
