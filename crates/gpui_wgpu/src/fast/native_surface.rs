@@ -67,8 +67,8 @@ impl WgpuRenderer {
             .borrow()
             .as_ref()
             .map(|context| context.instance.clone());
-        let instance = existing_instance
-            .unwrap_or_else(|| WgpuContext::instance(source.display_handle()));
+        let instance =
+            existing_instance.unwrap_or_else(|| WgpuContext::instance(source.display_handle()));
         let surface = source
             .create_surface(&instance)
             .map_err(|error| error.context("Failed to create surface"))?;
@@ -133,8 +133,12 @@ impl WgpuRenderer {
 
             let instance = WgpuContext::instance(source.display_handle());
             let surface = source.create_surface(&instance)?;
-            let context =
-                WgpuContext::new_rejecting_software(instance, &surface, &config, self.compositor_gpu)?;
+            let context = WgpuContext::new_rejecting_software(
+                instance,
+                &surface,
+                &config,
+                self.compositor_gpu,
+            )?;
             crate::fast::app_context::publish(&context);
             *gpu_context.borrow_mut() = Some(context);
             surface

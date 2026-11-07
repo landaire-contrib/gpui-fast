@@ -169,7 +169,9 @@ impl WgpuDynamicTexture {
     /// and multisampled attachments that resolve into it. `None` where the
     /// device cannot reinterpret texture formats (GLES, WebGL).
     pub fn srgb_view_format(&self) -> Option<wgpu::TextureFormat> {
-        self.srgb_view.as_ref().map(|_| self.format.add_srgb_suffix())
+        self.srgb_view
+            .as_ref()
+            .map(|_| self.format.add_srgb_suffix())
     }
 
     fn live_view(&self) -> Result<wgpu::TextureView> {
