@@ -78,7 +78,7 @@ mod tests {
         let instance = crate::fast::rounded_clip::headless_instance();
         let mut adapters = gpui::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
         let Some(last) = adapters.last().map(|adapter| adapter.get_info().name) else {
-            eprintln!("skipping: no GPU adapters");
+            crate::fast::test_gpu::skip_without_gpu("no GPU adapters");
             return;
         };
 

@@ -50,13 +50,18 @@ jobs:
         run: cargo test -p gpui_perf --features fast,upstream --test windows_manifest_coexistence
 
       # Scroll layer tiles must match drawing directly, byte for byte, on
-      # each renderer; these run on the runner's GPU.
+      # each renderer; these run on the runner's GPU, and fail rather than
+      # skip when no adapter is found.
       - name: Test scroll layers on WGPU (Metal, DX12)
         if: runner.os == 'macOS' || runner.os == 'Windows'
+        env:
+          GPUI_REQUIRE_GPU: "1"
         run: cargo test -p gpui_wgpu --features test-support fast::layers -- --nocapture
 
       - name: Test dynamic textures on WGPU (Metal, DX12)
         if: runner.os == 'macOS' || runner.os == 'Windows'
+        env:
+          GPUI_REQUIRE_GPU: "1"
         run: cargo test -p gpui_wgpu --features test-support fast::dynamic_textures -- --nocapture
 
       - name: Test the Windows platform on WGPU

@@ -105,7 +105,7 @@ fn rounded_overflow_frame_cost(cx: &mut gpui::TestAppContext) {
 #[test]
 fn harness_renders_a_quad_at_the_right_pixels() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let mut scene = Scene::default();
@@ -159,7 +159,7 @@ fn rounded_overflow_inside_scroll_tiles_matches_direct_pixels(cx: &mut gpui::Tes
 #[test]
 fn a_rasterized_tile_equals_the_same_content_drawn_directly() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let direct = harness.render(
@@ -176,7 +176,7 @@ fn a_rasterized_tile_equals_the_same_content_drawn_directly() {
 #[test]
 fn tiles_of_negative_coordinates_rasterize_like_positive_ones() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let direct = harness.render(
@@ -198,7 +198,7 @@ fn tiles_of_negative_coordinates_rasterize_like_positive_ones() {
 #[test]
 fn a_composited_layer_equals_direct_drawing() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     composite_and_compare(&mut harness, (37., -91.), Paths::Without);
@@ -212,7 +212,7 @@ fn a_composited_layer_equals_direct_drawing() {
 #[test]
 fn paths_composite_exactly_at_even_translations() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     composite_and_compare(&mut harness, (38., -92.), Paths::With);
@@ -225,7 +225,7 @@ fn paths_composite_exactly_at_even_translations() {
 #[test]
 fn covered_paths_drawn_over_the_tiles_equal_direct_drawing() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     for translation in [(37., -91.), (38., -92.), (3., 5.), (101., -233.)] {
@@ -385,7 +385,7 @@ fn tiles_are_evicted_least_recently_composited_first_within_the_budget() {
 #[test]
 fn resize_releases_every_tile() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let key = LayerKey(1);
@@ -854,16 +854,11 @@ struct PathTargets {
 }
 
 impl Harness {
-    /// A harness on the first adapter wgpu offers without a surface, or
-    /// `None` when there is none (the tests then skip).
+    /// A harness on the first adapter wgpu offers without a surface, on the
+    /// backends windows use on this OS (DX12 on Windows), or `None` when
+    /// there is none (the tests then skip, or fail under GPUI_REQUIRE_GPU).
     pub(super) fn new() -> Option<Harness> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL | wgpu::Backends::METAL,
-            flags: wgpu::InstanceFlags::default(),
-            backend_options: wgpu::BackendOptions::default(),
-            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
-            display: None,
-        });
+        let instance = crate::fast::rounded_clip::headless_instance();
         let adapter = gpui::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,

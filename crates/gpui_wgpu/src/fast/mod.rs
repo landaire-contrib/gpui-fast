@@ -24,3 +24,5 @@ pub(crate) mod native_surface;
 pub(crate) mod pass_state;
 pub(crate) mod renderer_options;
 pub(crate) mod rounded_clip;
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod test_gpu;

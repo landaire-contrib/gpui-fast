@@ -26,8 +26,8 @@ pub(crate) mod work;
 use crate::{App, GlobalElementId, Window};
 use collections::FxHashMap;
 
-/// Whether scroll layers are compiled in: Linux and macOS (wgpu) and
-/// Windows (Direct3D 11).
+/// Whether scroll layers are compiled in: Linux, macOS and Windows, all on
+/// the wgpu renderer.
 /// Elsewhere every layer entry point is a no-op and today's path runs.
 pub(crate) const COMPILED: bool = cfg!(any(
     target_os = "linux",
