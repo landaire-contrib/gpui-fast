@@ -58,7 +58,7 @@ fn clear(context: &WgpuContext, view: &wgpu::TextureView, color: wgpu::Color) {
     context.queue.submit([encoder.finish()]);
 }
 
-fn pixel(image: &image::RgbaImage, scale: f32, x: f32, y: f32, expected: [u8; 4]) {
+pub(super) fn pixel(image: &image::RgbaImage, scale: f32, x: f32, y: f32, expected: [u8; 4]) {
     let actual = image.get_pixel((x * scale) as u32, (y * scale) as u32).0;
     assert!(
         actual.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 3),
@@ -68,7 +68,7 @@ fn pixel(image: &image::RgbaImage, scale: f32, x: f32, y: f32, expected: [u8; 4]
 
 /// A second real device renders through the ordinary frame pipeline, with
 /// readback only after rendering. Foreign sprite ids must not reach WGPU.
-fn draw_other(
+pub(super) fn draw_other(
     context: &WgpuContext,
     format: wgpu::TextureFormat,
     scene: &gpui::Scene,

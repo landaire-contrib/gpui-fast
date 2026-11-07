@@ -246,6 +246,12 @@ No application-specific timeline policy belongs here.
   well as native wgpu. The existing Metal upload backend and its installer
   are unchanged; CPU updates refuse GPU-written metadata. A native Metal
   producer interface is outside this extension.
+  On native wgpu, publishing a window context (see below) installs a CPU
+  upload backend: `Window::create_dynamic_texture` textures are wgpu
+  textures on that context's device, written with `Queue::write_texture`
+  and registered in its lookup table. After device loss they are recreated
+  on the new device with the same ids and sizes, and the application
+  uploads their contents again.
 
 - The window renderer's wgpu context, for applications (`gpui_wgpu::fast::app_context`):
   `gpui_wgpu` exports `app_context()`, `WgpuAppContext` and

@@ -381,7 +381,7 @@ impl WgpuAtlasTexture {
     }
 }
 
-fn swizzle_upload_data(bytes: &[u8], format: wgpu::TextureFormat) -> Vec<u8> {
+pub(crate) fn swizzle_upload_data(bytes: &[u8], format: wgpu::TextureFormat) -> Vec<u8> {
     match format {
         wgpu::TextureFormat::Rgba8Unorm => {
             let mut data = bytes.to_vec();

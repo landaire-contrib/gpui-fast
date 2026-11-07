@@ -203,3 +203,7 @@ impl Drop for WgpuDynamicTexture {
 
 #[cfg(all(test, feature = "test-support", not(target_family = "wasm")))]
 mod tests;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod upload;
+#[cfg(all(test, feature = "test-support", not(target_family = "wasm")))]
+mod upload_tests;

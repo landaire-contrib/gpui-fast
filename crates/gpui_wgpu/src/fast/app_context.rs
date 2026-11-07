@@ -30,12 +30,15 @@ static PUBLISHED: Mutex<Option<WgpuAppContext>> = Mutex::new(None);
 /// Textures from `context.create_dynamic_texture` are sampled by GPUI without
 /// a copy. When `context.device_lost()` turns true, stop using the device and
 /// drop its objects; once a window recovers, this returns a new context with
-/// a later generation, on which to recreate them.
+/// a later generation, on which to recreate them. CPU dynamic textures
+/// (`Window::create_dynamic_texture`) keep their ids and sizes on the new
+/// device, but their contents must be uploaded again.
 pub fn app_context() -> Option<WgpuAppContext> {
     PUBLISHED.lock().clone()
 }
 
-/// Publishes a context a window renderer created.
+/// Publishes a context a window renderer created and moves CPU dynamic
+/// textures onto its device.
 pub(crate) fn publish(context: &WgpuContext) {
     let mut published = PUBLISHED.lock();
     let generation = published
@@ -45,4 +48,6 @@ pub(crate) fn publish(context: &WgpuContext) {
         context: context.clone(),
         generation: WgpuContextGeneration(generation),
     });
+    drop(published);
+    crate::fast::dynamic_textures::upload::use_context(context);
 }
