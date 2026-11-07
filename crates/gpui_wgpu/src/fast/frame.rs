@@ -66,6 +66,8 @@ pub(crate) struct FrameState {
     vertices: Vec<PathRasterizationVertex>,
     sprites: Vec<PathSprite>,
     path_batches: Vec<PathBatch>,
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub(crate) paint_surfaces: crate::fast::paint_surface::PaintSurfaces,
 }
 
 /// The GPU objects a frame is recorded with, borrowed from whoever owns them:
@@ -959,9 +961,18 @@ pub(crate) fn draw_scene(
                     range,
                 );
             }
-            // Surfaces are macOS-only for video playback and are not
-            // implemented by the WGPU renderer.
-            PrimitiveBatch::Surfaces(_surfaces) => {}
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            PrimitiveBatch::Surfaces(range) => crate::fast::paint_surface::draw(
+                target,
+                &state.paint_surfaces,
+                &mut pass,
+                &mut bound,
+                draw.globals,
+                &scene.surfaces[range],
+            ),
+            // Surfaces hold CoreVideo images, which only exist on Apple platforms.
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            PrimitiveBatch::Surfaces(_) => {}
         }
     }
     drop(pass);

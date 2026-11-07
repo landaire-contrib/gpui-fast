@@ -65,7 +65,7 @@ pub(crate) struct GlobalParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct PodBounds {
+pub(crate) struct PodBounds {
     origin: [f32; 2],
     size: [f32; 2],
 }
@@ -81,9 +81,9 @@ impl From<Bounds<ScaledPixels>> for PodBounds {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct SurfaceParams {
-    bounds: PodBounds,
-    content_mask: PodBounds,
+pub(crate) struct SurfaceParams {
+    pub(crate) bounds: PodBounds,
+    pub(crate) content_mask: PodBounds,
 }
 
 #[repr(C)]
@@ -133,7 +133,7 @@ pub(crate) struct WgpuPipelines {
     pub(crate) subpixel_sprites: Option<wgpu::RenderPipeline>,
     pub(crate) poly_sprites: wgpu::RenderPipeline,
     #[allow(dead_code)]
-    surfaces: wgpu::RenderPipeline,
+    pub(crate) surfaces: wgpu::RenderPipeline,
 }
 
 /// One frame allocation of instance data, ready to bind.
@@ -161,7 +161,7 @@ pub(crate) struct WgpuBindGroupLayouts {
     pub(crate) globals: wgpu::BindGroupLayout,
     pub(crate) instances: wgpu::BindGroupLayout,
     pub(crate) texture: wgpu::BindGroupLayout,
-    surfaces: wgpu::BindGroupLayout,
+    pub(crate) surfaces: wgpu::BindGroupLayout,
 }
 
 /// Shared GPU context reference, used to coordinate device recovery across multiple windows.
@@ -1644,7 +1644,9 @@ impl WgpuRendererCore {
                     }
                     // Surfaces are macOS-only for video playback and are not
                     // implemented by the WGPU renderer.
-                    PrimitiveBatch::Surfaces(_surfaces) => {}
+                    PrimitiveBatch::Surfaces(range) => {
+                        crate::fast::paint_surface::draw_core(self, scene, range, &mut pass)
+                    }
                 }
             }
         }

@@ -14,7 +14,6 @@
 //! through [`Renderer::take_redraw`].
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 use gpui::{DevicePixels, Scene, Size};
@@ -128,7 +127,6 @@ impl Renderer {
             }
             return;
         }
-        warn_about_paint_surfaces(scene);
         if self.wgpu.draw(scene) {
             self.presented = true;
         } else {
@@ -258,18 +256,5 @@ fn clear_color(transparent: bool) -> wgpu::Color {
         wgpu::Color::TRANSPARENT
     } else {
         wgpu::Color::BLACK
-    }
-}
-
-/// `gpui_wgpu` draws no `PaintSurface` (a `CVPixelBuffer` painted with
-/// `gpui::surface`, as screen capture frames and video are): say so once
-/// rather than leave the element blank without a trace.
-fn warn_about_paint_surfaces(scene: &Scene) {
-    static WARNED: AtomicBool = AtomicBool::new(false);
-    if !scene.surfaces.is_empty() && !WARNED.swap(true, Ordering::Relaxed) {
-        log::warn!(
-            "gpui::surface elements (CVPixelBuffer content) are not drawn: \
-             the wgpu renderer does not support PaintSurface"
-        );
     }
 }

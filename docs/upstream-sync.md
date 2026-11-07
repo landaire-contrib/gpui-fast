@@ -308,11 +308,14 @@ No application-specific timeline policy belongs here.
   `xcrun metal` and can be checked from any host, and `gpui_macos`'s
   `runtime_shaders` feature has no effect. Windows pace frames with the
   `CVDisplayLink` registry on every macOS version, never a
-  `CAMetalDisplayLink`, because wgpu acquires the layer's drawables itself
-  (`gpui_macos::fast::metal_frames`). `gpui::surface` content
-  (`PaintSurface`, a `CVPixelBuffer`, as macOS screen capture frames are
-  delivered) is not drawn on macOS: `gpui_wgpu` has no surface pipeline, and
-  the renderer logs a warning the first time a scene holds one. On a sync,
+  `CAMetalDisplayLink`, because wgpu acquires the layer's drawables itself,
+  and leave the link after an update that presented nothing and owes no
+  frame, rejoining it through GPUI's frame waker (`gpui_macos::fast::frames`,
+  which replaces upstream's `FrameSource` and `MetalFrames`). `gpui::surface`
+  content (`PaintSurface`, a bi-planar 4:2:0 full-range `CVPixelBuffer`, as
+  macOS screen capture frames are delivered) is drawn by
+  `gpui_wgpu::fast::paint_surface`, which imports its planes through a
+  `CVMetalTextureCache` as textures on GPUI's device. On a sync,
   `gpui_macos.rs` keeps redirecting its `renderer` module to
   `fast/renderer.rs` in place of `gpui_apple::metal_renderer`: when upstream's
   `gpui_macos` starts calling a `MetalRenderer` method, add it there.
