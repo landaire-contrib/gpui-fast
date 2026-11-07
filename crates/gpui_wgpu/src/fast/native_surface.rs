@@ -238,29 +238,6 @@ impl WgpuRenderer {
         Ok(renderer)
     }
 
-    /// Moves this renderer onto a new surface from `source` on the same GPU
-    /// context, keeping its device, pipelines and sprite atlas, like
-    /// [`WgpuRenderer::replace_surface_sharing_context`]. Also resumes a
-    /// renderer after [`WgpuRenderer::unconfigure_surface`].
-    pub fn replace_surface_from_source(
-        &mut self,
-        source: &dyn WgpuSurfaceSource,
-        config: WgpuSurfaceConfig,
-    ) -> anyhow::Result<()> {
-        let gpu_context = Rc::clone(
-            self.context
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("renderer has no shared GPU context"))?,
-        );
-        let context_ref = gpu_context.borrow();
-        let context = context_ref
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("GPU context is not initialized"))?;
-        let surface = source.create_surface(&context.instance)?;
-        context.check_compatible_with_surface(&surface)?;
-        self.install_surface(surface, config)
-    }
-
     /// Configures the current surface again with its current configuration
     /// and reports whether the driver accepted it.
     ///
@@ -294,46 +271,5 @@ impl WgpuRenderer {
             transparent: self.surface_config.alpha_mode != wgpu::CompositeAlphaMode::Opaque,
             preferred_present_mode: Some(self.surface_config.present_mode),
         }
-    }
-
-    /// Configures `surface` against this renderer's device and draws to it
-    /// from now on, keeping the device objects and atlas.
-    fn install_surface(
-        &mut self,
-        surface: wgpu::Surface<'static>,
-        config: WgpuSurfaceConfig,
-    ) -> anyhow::Result<()> {
-        self.surface_config.width = (config.size.width.0 as u32).max(1);
-        self.surface_config.height = (config.size.height.0 as u32).max(1);
-        self.surface_config.alpha_mode = if config.transparent {
-            self.transparent_alpha_mode
-        } else {
-            self.opaque_alpha_mode
-        };
-        if let Some(mode) = config.preferred_present_mode {
-            self.surface_config.present_mode = mode;
-        }
-
-        let mut core = match std::mem::replace(&mut self.state, RendererState::Released) {
-            RendererState::Ready {
-                core,
-                surface: old_surface,
-            } => {
-                // A window holds one swap chain at a time on some backends.
-                drop(old_surface);
-                core
-            }
-            RendererState::Unconfigured { core } => core,
-            RendererState::Released => {
-                anyhow::bail!("Cannot replace the surface: GPU resources have been released")
-            }
-        };
-        // The new surface may not support the old color space; check it again.
-        self.surface_config.color_space = wgpu::SurfaceColorSpace::Auto;
-        surface.configure(&core.resources.device, &self.surface_config);
-        core.resources.invalidate_intermediate_textures();
-        self.state = RendererState::Ready { surface, core };
-        self.apply_color_space();
-        Ok(())
     }
 }

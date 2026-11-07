@@ -281,9 +281,8 @@ No application-specific timeline policy belongs here.
   (Vulkan and GL elsewhere, as upstream). `gpui_wgpu` exports the
   `WgpuSurfaceSource` trait (whose `backends` lets a platform fall back to
   another backend, built with `WgpuContext::instance_with_backends`), and
-  `WgpuRenderer` gains `new_from_source`,
-  `recover_from_source`, `new_sharing_atlas_from_source`,
-  `replace_surface_from_source` and `reconfigure_surface`, which reports a
+  `WgpuRenderer` gains `new_from_source`, `recover_from_source`,
+  `new_sharing_atlas_from_source` and `reconfigure_surface`, which reports a
   failed swap chain configure so the platform can retry it. Upstream only
   builds surfaces from raw window handles, while DirectComposition visuals
   and `CAMetalLayer`s need surfaces the platform creates, on whichever

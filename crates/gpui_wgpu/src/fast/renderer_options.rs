@@ -105,7 +105,7 @@ impl WgpuRenderer {
         core.rendering_params.subpixel_enhanced_contrast = params.subpixel_enhanced_contrast;
     }
 
-    pub(crate) fn apply_color_space(&mut self) {
+    fn apply_color_space(&mut self) {
         let RendererState::Ready { surface, core } = &self.state else {
             return;
         };
