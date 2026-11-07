@@ -158,6 +158,7 @@ impl WgpuContext {
         compositor_gpu: Option<CompositorGpuHint>,
         reject_software: bool,
     ) -> anyhow::Result<Self> {
+        let reject_software = crate::fast::adapter_preference::reject_software(reject_software);
         let device_id_filter = Self::device_id_filter();
 
         // Select an adapter by actually testing surface configuration with the real device.
@@ -536,6 +537,7 @@ impl WgpuContext {
         }
 
         Self::sort_adapters(&mut adapters, device_id_filter, compositor_gpu);
+        crate::fast::adapter_preference::apply(&mut adapters);
 
         // Log all available adapters (in sorted order)
         log::info!("Found {} GPU adapter(s):", adapters.len());

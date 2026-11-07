@@ -261,6 +261,10 @@ No application-specific timeline policy belongs here.
   renderer publishes the context it creates for the first window and the one
   it creates after device loss; the generation tells the application to
   recreate its GPU objects.
+  `gpui_wgpu` also exports `set_adapter_preference`, `WgpuAdapterPreference`
+  and `describe_adapters`: an application that used to choose the adapter
+  of its own wgpu device (by name, or a software adapter) now renders on
+  GPUI's, so it steers the adapter GPUI picks for windows and recovery.
 
 - Native wgpu windows on Windows and macOS (`gpui_wgpu::fast::native_surface`):
   `WgpuContext::instance` selects DX12 on Windows and Metal on Apple targets

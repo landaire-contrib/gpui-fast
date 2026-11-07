@@ -8,6 +8,8 @@
 //! tests — is written here, one file per topic.
 
 #[cfg(not(target_family = "wasm"))]
+pub(crate) mod adapter_preference;
+#[cfg(not(target_family = "wasm"))]
 pub(crate) mod app_context;
 pub(crate) mod atlas;
 pub(crate) mod bind_groups;
