@@ -42,6 +42,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The runner has no GPU, and wgpu finds no usable adapter with the WARP
+      # its Windows image ships with. Install the WARP release wgpu's own CI uses
+      # next to the test executables, which Direct3D 12 loads in its place
+      # (after rust-cache, which restores target/).
+      - name: Install WARP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl.exe -L --retry 5 -o warp.zip https://www.nuget.org/api/v2/package/Microsoft.Direct3D.WARP/1.0.20
+          New-Item -ItemType Directory -Force target/warp, target/debug/deps | Out-Null
+          tar -xf warp.zip -C target/warp build/native/bin/x64/d3d10warp.dll
+          Copy-Item target/warp/build/native/bin/x64/d3d10warp.dll target/debug/
+          Copy-Item target/warp/build/native/bin/x64/d3d10warp.dll target/debug/deps/
+          Remove-Item -Recurse warp.zip, target/warp
+
       - name: Test gpui
         run: cargo test -p gpui --features test-support
 
@@ -50,18 +65,28 @@ jobs:
         run: cargo test -p gpui_perf --features fast,upstream --test windows_manifest_coexistence
 
       # Scroll layer tiles must match drawing directly, byte for byte, on
-      # each renderer; these run on the runner's GPU.
-      - name: Test scroll layers on Metal
-        if: runner.os == 'macOS'
-        run: cargo test -p gpui_apple fast::layers -- --nocapture
+      # each renderer; these run on the runner's GPU, and fail rather than
+      # skip when no adapter is found.
+      - name: Test scroll layers on WGPU (Metal, DX12)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        env:
+          GPUI_REQUIRE_GPU: "1"
+        run: cargo test -p gpui_wgpu --features test-support fast::layers -- --nocapture
 
-      - name: Test GPU-written dynamic textures on WGPU
-        if: runner.os == 'macOS'
+      - name: Test dynamic textures on WGPU (Metal, DX12)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        env:
+          GPUI_REQUIRE_GPU: "1"
         run: cargo test -p gpui_wgpu --features test-support fast::dynamic_textures -- --nocapture
 
-      - name: Test scroll layers on Direct3D
+      # Dev-dependencies enable the test-support features gpui_macos needs.
+      - name: Test the macOS platform on WGPU
+        if: runner.os == 'macOS'
+        run: cargo test -p gpui_macos
+
+      - name: Test the Windows platform on WGPU
         if: runner.os == 'Windows'
-        run: cargo test -p gpui_windows --features test-support fast::layers -- --nocapture
+        run: cargo test -p gpui_windows --features test-support
 
       - name: Check gpui_perf
         run: cargo check -p gpui_perf --all-targets

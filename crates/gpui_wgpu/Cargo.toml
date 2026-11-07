@@ -47,6 +47,11 @@ wgpu = { workspace = true, features = ["std", "metal", "gles", "vulkan", "wgsl",
 [target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
 wgpu = { workspace = true, default-features = true }
 
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2-core-foundation.workspace = true
+objc2-core-video = { workspace = true, features = ["CVPixelBuffer", "CVMetalTexture", "CVMetalTextureCache", "CVReturn", "objc2", "objc2-metal"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture"] }
+
 [target.'cfg(target_family = "wasm")'.dependencies]
 web-sys = { workspace = true, features = ["HtmlCanvasElement"] }
 wgpu = { workspace = true, features = ["webgl"] }

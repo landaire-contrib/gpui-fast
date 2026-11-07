@@ -641,6 +641,26 @@ fn without_scroll_state(
     })
 }
 
+/// Tells any recording open that what the layer of the container `id` read
+/// is read again this frame, which composites the layer without painting its
+/// content: so the view holding the container stays told of changes the
+/// content would show (a dynamic texture written, a global changed), as it is
+/// on a frame that paints the layer. The container's own scroll state, which
+/// compositing follows, is left out.
+pub(crate) fn keep_layer_reads(window: &Window, cx: &mut App, id: &GlobalElementId) {
+    let Some(record) = window
+        .fast_layers
+        .layers
+        .get(id)
+        .and_then(|layer| layer.record.as_ref())
+    else {
+        return;
+    };
+    let source = window.fast_layers.scrolls.source(id);
+    let trimmed = without_scroll_state(&record.dependencies, source.as_ref());
+    cx.replay_dependencies(trimmed.as_ref().unwrap_or(&record.dependencies));
+}
+
 /// The view whose element is being prepainted: the one holding the scroll
 /// container asking.
 fn owner(window: &Window) -> Option<&GlobalElementId> {

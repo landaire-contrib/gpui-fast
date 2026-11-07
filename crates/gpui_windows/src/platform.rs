@@ -325,7 +325,9 @@ impl WindowsPlatform {
             validation_number: self.inner.validation_number,
             main_receiver: self.inner.main_receiver.clone(),
             platform_window_handle: self.handle,
-            disable_direct_composition: self.disable_direct_composition,
+            disable_direct_composition: crate::fast::renderer::disable_direct_composition(
+                self.disable_direct_composition,
+            ),
             directx_devices: self.inner.state.directx_devices.borrow().clone().unwrap(),
             invalidate_devices: self.invalidate_devices.clone(),
             draw_coordinator: self.inner.state.draw_coordinator.clone(),
@@ -440,6 +442,7 @@ impl WindowsPlatform {
             text_system.release_gpu();
         }
         self.inner.state.directx_devices.borrow_mut().take();
+        crate::fast::renderer::release_gpu();
     }
 
     fn begin_vsync_thread(&self) {
@@ -476,6 +479,7 @@ impl WindowsPlatform {
                     }
                     if check_device_lost(&directx_device.device)
                         || invalidate_devices.fetch_and(false, Ordering::Acquire)
+                        || crate::fast::renderer::take_device_loss()
                     {
                         if let Err(err) = handle_gpu_device_lost(
                             &mut directx_device,
@@ -633,6 +637,7 @@ impl Platform for WindowsPlatform {
                 callback();
             },
         );
+        crate::fast::renderer::release_gpu();
     }
 
     fn quit(&self) {

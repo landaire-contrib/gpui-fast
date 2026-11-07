@@ -2,6 +2,7 @@
 //! does to retained views that would otherwise draw nothing again. The
 //! payload and region validation tests live in the module itself.
 
+use crate::fast::layers::policy::Decision;
 use crate::{
     App, AppContext as _, Bounds, Context, DevicePixels, DynamicTexture, Element, ElementId,
     Entity, GlobalElementId, InspectorElementId, IntoElement, LayoutId, ParentElement as _, Render,
@@ -164,10 +165,9 @@ fn window(
     (window, paints, created)
 }
 
-/// An update, or a recorded GPU write, marks the window for a full redraw, so
-/// a cached view showing the texture renders again — and carries the new
-/// contents — even though nothing it read changed and it would otherwise draw
-/// nothing again.
+/// An update, or a recorded GPU write, draws again a cached view that painted
+/// the texture, so it carries the new contents even though nothing else it
+/// read changed and it would otherwise draw nothing again.
 #[test]
 fn a_write_renders_a_cached_view_showing_the_texture_again() {
     let mut cx = TestAppContext::single();
@@ -222,5 +222,226 @@ fn a_write_renders_a_cached_view_showing_the_texture_again() {
         paints.get(),
         3,
         "the cached view must be rendered again after a GPU write"
+    );
+}
+
+/// Two retained views, each painting a texture of its own.
+struct Pair {
+    left: Entity<Stream>,
+    right: Entity<Stream>,
+}
+
+impl Render for Pair {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size(px(300.))
+            .child(self.left.clone())
+            .child(self.right.clone())
+    }
+}
+
+struct Counted {
+    renders: Rc<Cell<usize>>,
+    texture: Rc<Cell<Option<DynamicTexture>>>,
+}
+
+fn stream(cx: &mut Context<Pair>) -> (Entity<Stream>, Counted) {
+    let counted = Counted {
+        renders: Rc::new(Cell::new(0)),
+        texture: Rc::new(Cell::new(None)),
+    };
+    let stream = cx.new(|_| Stream {
+        texture: None,
+        paints: counted.renders.clone(),
+        created: counted.texture.clone(),
+    });
+    (stream, counted)
+}
+
+fn whole(size_px: i32) -> Bounds<DevicePixels> {
+    Bounds {
+        origin: crate::point(DevicePixels(0), DevicePixels(0)),
+        size: size(DevicePixels(size_px), DevicePixels(size_px)),
+    }
+}
+
+/// A write outside a frame draws again only the view that painted the
+/// texture, and schedules the frame without refreshing the whole window.
+#[test]
+fn a_write_renders_only_the_view_that_painted_the_texture() {
+    let mut cx = TestAppContext::single();
+    crate::set_dynamic_texture_platform(std::sync::Arc::new(AnyBackend));
+    let counts: Rc<Cell<Option<(Counted, Counted)>>> = Rc::new(Cell::new(None));
+    let window = cx.add_window(|_, cx| {
+        let (left, left_counted) = stream(cx);
+        let (right, right_counted) = stream(cx);
+        counts.set(Some((left_counted, right_counted)));
+        Pair { left, right }
+    });
+    let (left, right) = counts.take().expect("the window was built");
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.draw(cx).clear(cx);
+    })
+    .unwrap();
+    assert_eq!((left.renders.get(), right.renders.get()), (1, 1));
+    let left_texture = left.texture.get().expect("the first draw created it");
+    let right_texture = right.texture.get().expect("the first draw created it");
+
+    for (texture, expected) in [(left_texture, (2, 1)), (right_texture, (2, 2))] {
+        cx.update_window(window.into(), |_, window, _| {
+            window
+                .update_dynamic_texture(texture, whole(4), &[0u8; 64], 16)
+                .expect("the update succeeds");
+            assert!(window.invalidator.is_dirty(), "a frame is scheduled");
+            assert!(!window.refreshing, "the window is not redrawn in full");
+        })
+        .unwrap();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        assert_eq!((left.renders.get(), right.renders.get()), expected);
+    }
+
+    // A GPU producer's write is targeted the same way.
+    cx.update_window(window.into(), |_, window, _| {
+        window
+            .refresh_dynamic_texture(left_texture)
+            .expect("the texture is live");
+        assert!(!window.refreshing);
+    })
+    .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.draw(cx).clear(cx);
+    })
+    .unwrap();
+    assert_eq!((left.renders.get(), right.renders.get()), (3, 2));
+}
+
+/// A write to a texture nothing painted yet has no views to draw again, so
+/// it still schedules a full redraw.
+#[test]
+fn a_write_to_an_unpainted_texture_redraws_the_window() {
+    let mut cx = TestAppContext::single();
+    let (window, _, _) = window(&mut cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.draw(cx).clear(cx);
+        let texture = window
+            .create_dynamic_texture(size(DevicePixels(4), DevicePixels(4)), &[0u8; 64], 16)
+            .expect("the backend is installed");
+        assert!(!window.invalidator.is_dirty());
+        window
+            .update_dynamic_texture(texture, whole(4), &[0u8; 64], 16)
+            .expect("the update succeeds");
+        assert!(window.invalidator.is_dirty(), "a frame is scheduled");
+        assert!(window.refreshing, "the whole window is redrawn");
+        window.remove_dynamic_texture(texture);
+    })
+    .unwrap();
+}
+
+/// A scroll container of forty rows with a texture painted among them.
+struct ScrolledStream {
+    texture: Option<DynamicTexture>,
+    handle: crate::ScrollHandle,
+}
+
+impl Render for ScrolledStream {
+    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        use crate::{InteractiveElement as _, StatefulInteractiveElement as _};
+        let texture = *self.texture.get_or_insert_with(|| {
+            window
+                .create_dynamic_texture(size(DevicePixels(4), DevicePixels(4)), &[0u8; 64], 16)
+                .expect("the backend is installed")
+        });
+        div().size_full().bg(crate::white()).child(
+            div()
+                .id("scroller")
+                .overflow_y_scroll()
+                .track_scroll(&self.handle)
+                .w(px(200.))
+                .h(px(100.))
+                .child(TexturePaint { texture })
+                .children(
+                    (0..40).map(|row| div().h(px(20.)).bg(crate::rgb(0x100000 + row * 0x10))),
+                ),
+        )
+    }
+}
+
+/// A write to a texture in a scroll layer that was last composited, not
+/// painted, still repaints the layer: the view holding the container keeps
+/// what the layer's content read.
+#[test]
+fn a_write_repaints_a_composited_scroll_layer_showing_the_texture() {
+    if !crate::fast::layers::COMPILED {
+        return;
+    }
+    let mut cx = TestAppContext::single();
+    crate::set_dynamic_texture_platform(std::sync::Arc::new(AnyBackend));
+    let window = cx.add_window(|_, _| ScrolledStream {
+        texture: None,
+        handle: crate::ScrollHandle::new(),
+    });
+    let frame = |cx: &mut TestAppContext| {
+        cx.update_window(window.into(), |_, window, _| window.fast_layers.frame)
+            .unwrap()
+    };
+    // Draws unless the test platform already drew what `change` left dirty.
+    let frame_after = |cx: &mut TestAppContext, change: &dyn Fn(&mut Window, &mut App)| {
+        let before = frame(cx);
+        cx.update_window(window.into(), |_, window, cx| change(window, cx))
+            .unwrap();
+        if frame(cx) == before {
+            cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
+                .unwrap();
+        }
+    };
+    let decision = |cx: &mut TestAppContext| {
+        cx.update_window(window.into(), |_, window, _| {
+            let id = window.fast_layers.layers.keys().next()?.clone();
+            crate::fast::layers::policy::last_decision(window, &id)
+        })
+        .unwrap()
+    };
+    frame_after(&mut cx, &|window, _| window.refresh());
+    frame_after(&mut cx, &|window, _| window.refresh());
+    let mut decisions = Vec::new();
+    for _ in 0..4 {
+        frame_after(&mut cx, &|window, cx| {
+            window.dispatch_event(
+                crate::PlatformInput::Scroll(crate::ScrollEvent {
+                    position: crate::point(px(20.), px(20.)),
+                    delta: crate::ScrollDelta::Pixels(crate::point(px(0.), px(-20.))),
+                    modifiers: Default::default(),
+                    touch_phase: crate::TouchPhase::Moved,
+                    ..Default::default()
+                }),
+                cx,
+            );
+        });
+        decisions.push(decision(&mut cx));
+    }
+    assert_eq!(
+        decisions.last(),
+        Some(&Some(Decision::Composite)),
+        "the last scroll composited the layer: {decisions:?}"
+    );
+
+    let texture = window
+        .update(&mut cx, |view, _, _| view.texture)
+        .unwrap()
+        .expect("the first draw created it");
+    frame_after(&mut cx, &|window, _| {
+        window
+            .update_dynamic_texture(texture, whole(4), &[0u8; 64], 16)
+            .expect("the update succeeds");
+        assert!(!window.refreshing);
+    });
+    assert_eq!(
+        decision(&mut cx),
+        Some(Decision::Repaint),
+        "the layer showing the texture is painted again"
     );
 }

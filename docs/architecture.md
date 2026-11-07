@@ -579,11 +579,11 @@ stale, rasterizes the stale and missing tiles the frame composites before its
 main pass from `LayerFrame::tile_scene`, and binds a
 tile's texture when it meets a tile sprite. Nothing flows back to the core.
 Layers are compiled in only where a renderer implements this
-(`fast::layers::COMPILED`): Linux (wgpu), macOS (Metal) and Windows
-(Direct3D 11). Each renderer is verified by the same pixel
-tests on its platform's CI. Metal's gradient dither is seeded from the
-position within the quad rather than on screen, so a gradient rasterized into
-a tile gets the same noise as one drawn in the window.
+(`fast::layers::COMPILED`): Linux, Windows and macOS, all on the wgpu
+renderer. The renderer is verified by the same pixel
+tests on each platform's CI. The quad shader's gradient dither is seeded from
+the position within the quad rather than on screen, so a gradient rasterized
+into a tile gets the same noise as one drawn in the window.
 
 ### Lists
 

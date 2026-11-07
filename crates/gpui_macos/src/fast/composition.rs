@@ -64,8 +64,6 @@ pub(crate) struct MacComposition {
     base_surface: Option<CompositionSurfaceId>,
     /// Every GPUI surface but the base one.
     gpui_surfaces: FxHashMap<CompositionSurfaceId, MacGpuiSurface>,
-    /// What the window's renderer was created with, for the surfaces'.
-    renderer_context: renderer::Context,
     /// Native identities, parents and sibling order, independent of geometry.
     view_order: Vec<(CompositionSurfaceId, usize, usize)>,
     native_views: Rc<Vec<usize>>,
@@ -79,11 +77,10 @@ pub(crate) struct MacComposition {
 }
 
 impl MacComposition {
-    pub(crate) fn new(renderer_context: renderer::Context) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             base_surface: None,
             gpui_surfaces: FxHashMap::default(),
-            renderer_context,
             view_order: Vec::new(),
             native_views: Rc::new(Vec::new()),
             input_order: Rc::new(Vec::new()),
@@ -536,6 +533,9 @@ pub(crate) fn draw_composed(window_state: &Rc<Mutex<MacWindowState>>, scene: Com
         state.renderer.draw(scene.scene());
         return;
     };
+    if !recover_renderers(state) {
+        return;
+    }
     for layer in scene.layers() {
         let surface_scene = match scene.layer_scene(layer) {
             Ok(surface_scene) => surface_scene,
@@ -560,6 +560,39 @@ pub(crate) fn draw_composed(window_state: &Rc<Mutex<MacWindowState>>, scene: Com
             );
         }
     }
+}
+
+/// Recovers the window's renderer and its surfaces' from a lost device: the
+/// window renderer moves to a new device, and each surface's renderer rejoins
+/// it, sharing its atlas again. Returns whether the frame can be drawn: a
+/// frame that recovered the window renderer, or failed to, repaints instead.
+/// A surface that failed to rejoin skips its part and retries next frame.
+fn recover_renderers(state: &mut MacWindowState) -> bool {
+    let window_lost = state.renderer.device_lost();
+    if window_lost && !state.renderer.recover() {
+        return false;
+    }
+    for surface in state.fast_composition.gpui_surfaces.values_mut() {
+        if surface.renderer.device_lost()
+            && let Err(error) = surface.renderer.rejoin(&state.renderer)
+        {
+            log::error!("recreating AppKit composition renderer: {error:#}");
+        }
+    }
+    !window_lost
+}
+
+/// The window's renderer and the renderer of each of its GPUI surfaces.
+pub(crate) fn renderers_mut(
+    state: &mut MacWindowState,
+) -> impl Iterator<Item = &mut renderer::Renderer> {
+    std::iter::once(&mut state.renderer).chain(
+        state
+            .fast_composition
+            .gpui_surfaces
+            .values_mut()
+            .map(|surface| &mut surface.renderer),
+    )
 }
 
 /// `PlatformWindow::enable_window_composition`: an AppKit window can always
@@ -780,10 +813,7 @@ unsafe fn create_gpui_surface(
 ) -> Result<MacGpuiSurface> {
     // Made before the view, so that a renderer that fails to build leaves no
     // view holding the window state behind.
-    let mut renderer = renderer::new_overlay_renderer(
-        state.fast_composition.renderer_context.clone(),
-        &state.renderer,
-    )?;
+    let mut renderer = renderer::new_overlay_renderer(&state.renderer)?;
     let input_regions = Rc::new(RefCell::new(Vec::<gpui::Hitbox>::new()));
     let native_view = state.native_view.as_ptr();
     let class = OVERLAY_VIEW_CLASS.load(Ordering::Acquire).cast_const();

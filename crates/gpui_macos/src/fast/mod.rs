@@ -6,5 +6,10 @@
 //! into* this module: a field holding this module's state, a line forwarding a
 //! call to it. The logic itself — data structures, algorithms, bookkeeping,
 //! tests — is written here, one file per topic.
+//!
+//! Windows draw through `gpui_wgpu`: `renderer.rs` is the crate's `renderer`
+//! module (redirected from `gpui_macos.rs`), standing where upstream uses
+//! `gpui_apple::metal_renderer`.
 
 pub(crate) mod composition;
+pub(crate) mod frames;

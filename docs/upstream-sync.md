@@ -162,7 +162,7 @@ unchanged, and a new entry needs as good a reason.
   textures. Reserved ids from `0xF100_0000` identify rounded overflow groups
   with `tile_size = 0`; their drawable scene carries padding-edge geometry
   in a non-composited frame keyed by `u32::MAX`. The private wire format lives
-  in `fast::rounded_clip_scene`; Metal, WGPU and Direct3D evaluate the clip
+  in `fast::rounded_clip_scene`; Metal and WGPU evaluate the clip
   stack directly without intermediate render targets.
 - `crates/gpui/Cargo.toml` names this repository and sets `publish = false`.
 - Window composition, the API of
@@ -178,8 +178,7 @@ unchanged, and a new entry needs as good a reason.
   composition working; `Scene` gains `is_empty` and `replay_balanced`, and
   `ComposedScene::layer_scene`, ours, cuts one layer's scene out for a
   renderer; `Window` gains `enable_window_composition` and
-  `with_composition_surface`; `gpui_apple` exports `new_overlay_renderer`
-for `gpui_macos`, `WgpuRenderer` gains `new_sharing_atlas` and
+  `with_composition_surface`; `WgpuRenderer` gains `new_sharing_atlas` and
 `replace_surface_sharing_context` for `gpui_linux`, and `Background` gains
 `is_opaque` so `gpui_linux` cuts only opaque content out of native surfaces. It all lives in `fast::composition`, so when
   upstream merges its version, the sync replaces ours with it. Two things
@@ -232,16 +231,94 @@ No application-specific timeline policy belongs here.
   Its `WgpuDynamicTexture` owner provides `render` and `paint`: the producer
   submits on the shared queue, then the ordinary sprite pipeline samples
   that same texture, with no upload or transfer copy. A successful write
-  refreshes the window and advances the content version for retained views
-  and scroll-layer tiles.
+  advances the content version and, outside a frame, schedules a frame
+  that draws again only the retained views and scroll-layer tiles that
+  painted the texture (they read a per-texture `StateVersion` when they
+  paint it); a texture nothing painted yet still refreshes the window.
+  CPU updates through `Window::update_dynamic_texture` behave the same.
+  `render_srgb`, `format` and `srgb_view_format` let a producer that
+  computes linear color, such as a lit 3D scene, write through an sRGB view
+  of the same texture where the device can reinterpret formats; GPUI keeps
+  sampling the plain view, as it samples image bytes.
 
   Each context owns its texture lookup table; clones share it, while a new
   device starts with an empty table. The owning handle removes its entry
   and retires its core metadata on drop. GPU objects never enter the global
   upload platform, so this ownership works on browser WebGPU and WebGL as
-  well as native wgpu. The existing Metal upload backend and its installer
-  are unchanged; CPU updates refuse GPU-written metadata. A native Metal
-  producer interface is outside this extension.
+  well as native wgpu. The Metal upload backend and its installer build only
+  for iOS, with the Metal renderer; CPU updates refuse GPU-written metadata.
+  A native Metal producer interface is outside this extension.
+  On native wgpu, publishing a window context (see below) installs a CPU
+  upload backend: `Window::create_dynamic_texture` textures are wgpu
+  textures on that context's device, registered in its lookup table. A
+  write goes into a CPU copy of the texture and widens its dirty region,
+  and the next frame on the device uploads that region with
+  `Queue::write_texture` before it submits, so a window that does not draw
+  stages nothing however often the app writes. After device loss the
+  textures are recreated on the new device with the same ids, sizes and
+  contents.
+
+- The window renderer's wgpu context, for applications (`gpui_wgpu::fast::app_context`):
+  `gpui_wgpu` exports `app_context()`, `WgpuAppContext` and
+  `WgpuContextGeneration` on native targets. A `WgpuDynamicTexture` must come
+  from the context drawing the window, which the platform keeps private, so
+  without this an application cannot render into a texture GPUI samples. The
+  renderer publishes the context it creates for the first window and the one
+  it creates after device loss; the generation tells the application to
+  recreate its GPU objects. `on_device_lost` (with `WgpuContextRetired` and
+  `WgpuContextRetirement`) runs app callbacks when GPUI stops drawing with
+  the published context, before a recovering renderer creates another
+  device, so the application drops its objects on the old one first; a
+  device is only freed once nothing holds it. `release_app_context` is the
+  same for a platform releasing its GPU while it has nothing to draw.
+  `gpui_wgpu` also exports `set_adapter_preference`, `WgpuAdapterPreference`
+  and `describe_adapters`: an application that used to choose the adapter
+  of its own wgpu device (by name, or a software adapter) now renders on
+  GPUI's, so it steers the adapter GPUI picks for windows and recovery.
+
+- Native wgpu windows on Windows and macOS (`gpui_wgpu::fast::native_surface`):
+  `WgpuContext::instance` selects DX12 on Windows and Metal on Apple targets
+  (Vulkan and GL elsewhere, as upstream). `gpui_wgpu` exports the
+  `WgpuSurfaceSource` trait (whose `backends` lets a platform fall back to
+  another backend, built with `WgpuContext::instance_with_backends`), and
+  `WgpuRenderer` gains `new_from_source`, `recover_from_source`,
+  `new_sharing_atlas_from_source` and `reconfigure_surface`, which reports a
+  failed swap chain configure so the platform can retry it. Upstream only
+  builds surfaces from raw window handles, while DirectComposition visuals
+  and `CAMetalLayer`s need surfaces the platform creates, on whichever
+  instance owns the device.
+  `WgpuRenderer` also gains `set_clear_color`, `set_text_rendering_params`
+  (with the exported `WgpuTextRenderingParams`) and `set_color_space`, which
+  those platforms' renderers set from the OS (an opaque clear color under a
+  composition swap chain's fixed alpha mode, DirectWrite's text parameters,
+  Display P3), and a `test-support` `render_to_image` for their visual tests.
+  On Apple targets the default font gamma is 1.0 and the grayscale contrast
+  0.0, because Core Text coverage is already gamma-adjusted.
+
+- macOS windows draw through `gpui_wgpu` (`gpui_macos/src/fast/renderer.rs`,
+  a `CAMetalLayer` per window and per composition overlay). `gpui_macos` no
+  longer exports `metal_renderer` (`MetalHeadlessRenderer`,
+  `PathRasterizationVertex`, `PathSprite`, `SurfaceBounds`), and
+  `gpui_platform::current_headless_renderer` returns `gpui_wgpu`'s
+  `WgpuHeadlessRenderer` on macOS and Windows (DX12) as on Linux
+  (`gpui_platform::fast::headless`). `gpui_apple` builds its Metal renderer,
+  atlas, shaders and Metal dynamic texture backend only for iOS: its build
+  script sets the `fast_metal_renderer` cfg there
+  (`gpui_apple/src/fast/metal_renderer_cfg.rs`), so a macOS build runs no
+  `xcrun metal` and can be checked from any host, and `gpui_macos`'s
+  `runtime_shaders` feature has no effect. Windows pace frames with the
+  `CVDisplayLink` registry on every macOS version, never a
+  `CAMetalDisplayLink`, because wgpu acquires the layer's drawables itself,
+  and leave the link after an update that presented nothing and owes no
+  frame, rejoining it through GPUI's frame waker (`gpui_macos::fast::frames`,
+  which replaces upstream's `FrameSource` and `MetalFrames`). `gpui::surface`
+  content (`PaintSurface`, a bi-planar 4:2:0 full-range `CVPixelBuffer`, as
+  macOS screen capture frames are delivered) is drawn by
+  `gpui_wgpu::fast::paint_surface`, which imports its planes through a
+  `CVMetalTextureCache` as textures on GPUI's device. On a sync,
+  `gpui_macos.rs` keeps redirecting its `renderer` module to
+  `fast/renderer.rs` in place of `gpui_apple::metal_renderer`: when upstream's
+  `gpui_macos` starts calling a `MetalRenderer` method, add it there.
 
 When the check fails, move the change into a `fast/` module and leave a hook
 behind that names it; use `git diff <import_commit> -- <file>` to see what
@@ -272,6 +349,19 @@ commit our copy was taken from is `zed_commit` in `UPSTREAM`, and
    upstream changed in the original (`git diff <old vendor commit> <new vendor
    commit> -- <file>`) and port it into our copy by hand. The merge won't
    conflict on those files, so this step is easy to forget.
+
+   `gpui_windows`' `directx_renderer` module is one of them: windows draw
+   through `gpui_wgpu` on Direct3D 12 (`gpui_windows/src/fast/renderer.rs`),
+   so upstream's Direct3D 11 renderer (`directx_renderer.rs`) and its atlas
+   (`directx_atlas.rs`, whose `mod` line is removed) are kept as upstream
+   has them but not compiled. `build.rs` is upstream's too, and release
+   builds still compile `shaders.hlsl` with `fxc` next to the color glyph
+   shaders. Port only what our `fast/directx_renderer.rs` keeps of the
+   original: DirectWrite's rendering parameters (`get_font_info`), the color
+   glyph shaders, and the GPU description (`gpu_specs` with its NVIDIA, AMD
+   and DXGI driver version queries). A rendering fix upstream makes to its
+   Direct3D 11 renderer belongs in `gpui_wgpu`, if that renderer needs it
+   too.
 4. Update `zed_commit` and `import_commit` in `UPSTREAM` to the new zed commit
    and the new vendor commit, and add or remove entries under `tracked` if zed
    added or removed crates we use.

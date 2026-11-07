@@ -78,6 +78,16 @@ test("gpui_wgpu is adapted to the registry wgpu, and unknown queue setup is refu
     .toThrow("queue configuration changed");
 });
 
+test("imported textures drop the cleared argument, and uncleared imports are refused", () => {
+  const call = (cleared: string) => "device.create_texture_from_hal::<wgpu::hal::api::Metal>(\n"
+    + "    hal_texture,\n    &descriptor,\n    wgpu::TextureUses::RESOURCE,\n"
+    + `    ${cleared},\n)`;
+  expect(adaptToReleasedWgpu(call("true"))).toBe(
+    "device.create_texture_from_hal::<wgpu::hal::api::Metal>(\n"
+    + "    hal_texture,\n    &descriptor,\n    wgpu::TextureUses::RESOURCE,\n)");
+  expect(() => adaptToReleasedWgpu(call("false"))).toThrow("cannot mark uncleared");
+});
+
 test("Cargo can update only gpui-fast while its platform remains locked", () => {
   const root = mkdtempSync(resolve(tmpdir(), "gpui-fast-update-"));
   const patches: Record<string, unknown> = {};

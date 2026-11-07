@@ -6,17 +6,16 @@
 //! *call into* this module: a field holding this module's state, a line
 //! forwarding a call to it. The logic itself is written here, one file per
 //! topic.
+//!
+//! `directx_renderer.rs` here is not one of these modules: `gpui_windows.rs`
+//! redirects upstream's `directx_renderer` module to it.
 
 pub(crate) mod class_names;
 pub(crate) mod composition;
 pub(crate) mod device_recovery;
 pub(crate) mod device_wake;
-pub(crate) mod draw_state;
 pub(crate) mod font_fallback;
-pub(crate) mod frame;
 pub(crate) mod frame_schedule;
-pub(crate) mod globals;
-pub(crate) mod layers;
 #[cfg(test)]
 pub(crate) mod native_tests;
-pub(crate) mod rounded_clip;
+pub(crate) mod renderer;

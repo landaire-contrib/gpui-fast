@@ -65,7 +65,7 @@ pub(crate) struct GlobalParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct PodBounds {
+pub(crate) struct PodBounds {
     origin: [f32; 2],
     size: [f32; 2],
 }
@@ -81,9 +81,9 @@ impl From<Bounds<ScaledPixels>> for PodBounds {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct SurfaceParams {
-    bounds: PodBounds,
-    content_mask: PodBounds,
+pub(crate) struct SurfaceParams {
+    pub(crate) bounds: PodBounds,
+    pub(crate) content_mask: PodBounds,
 }
 
 #[repr(C)]
@@ -133,7 +133,7 @@ pub(crate) struct WgpuPipelines {
     pub(crate) subpixel_sprites: Option<wgpu::RenderPipeline>,
     pub(crate) poly_sprites: wgpu::RenderPipeline,
     #[allow(dead_code)]
-    surfaces: wgpu::RenderPipeline,
+    pub(crate) surfaces: wgpu::RenderPipeline,
 }
 
 /// One frame allocation of instance data, ready to bind.
@@ -161,7 +161,7 @@ pub(crate) struct WgpuBindGroupLayouts {
     pub(crate) globals: wgpu::BindGroupLayout,
     pub(crate) instances: wgpu::BindGroupLayout,
     pub(crate) texture: wgpu::BindGroupLayout,
-    surfaces: wgpu::BindGroupLayout,
+    pub(crate) surfaces: wgpu::BindGroupLayout,
 }
 
 /// Shared GPU context reference, used to coordinate device recovery across multiple windows.
@@ -232,7 +232,7 @@ pub(crate) struct WgpuRendererCore {
 
 /// GPU resources of a windowed renderer. A surface is only ever configured against the
 /// device that owns `core`, so it cannot outlive it: there is no surface-only state.
-enum RendererState {
+pub(crate) enum RendererState {
     /// Frames can be drawn.
     Ready {
         surface: wgpu::Surface<'static>,
@@ -253,8 +253,8 @@ pub struct WgpuRenderer {
     /// Compositor GPU hint for adapter selection (unused on WASM).
     #[allow(dead_code)]
     pub(crate) compositor_gpu: Option<CompositorGpuHint>,
-    state: RendererState,
-    surface_config: wgpu::SurfaceConfiguration,
+    pub(crate) state: RendererState,
+    pub(crate) surface_config: wgpu::SurfaceConfiguration,
     pub(crate) atlas: Arc<WgpuAtlas>,
     transparent_alpha_mode: wgpu::CompositeAlphaMode,
     opaque_alpha_mode: wgpu::CompositeAlphaMode,
@@ -265,6 +265,7 @@ pub struct WgpuRenderer {
     observed_error_generation: u64,
     last_surface_error: Option<String>,
     needs_redraw: bool,
+    pub(crate) fast_options: crate::fast::renderer_options::RendererOptions,
 }
 
 impl WgpuRenderer {
@@ -343,6 +344,9 @@ impl WgpuRenderer {
                 compositor_gpu,
             )?),
         };
+        if surface_configured {
+            crate::fast::app_context::publish(context);
+        }
 
         let atlas = Arc::new(WgpuAtlas::from_context(context));
 
@@ -518,6 +522,7 @@ impl WgpuRenderer {
             observed_error_generation: 0,
             last_surface_error: None,
             needs_redraw: false,
+            fast_options: crate::fast::renderer_options::RendererOptions::default(),
         })
     }
 }
@@ -1233,7 +1238,7 @@ impl WgpuRenderer {
             &frame_view,
             size,
             premultiplied_alpha,
-            wgpu::Color::TRANSPARENT,
+            crate::fast::renderer_options::RendererOptions::clear_color(&self.fast_options),
         ) {
             log::error!("{error:#}");
             return false;
@@ -1470,6 +1475,7 @@ impl WgpuRendererCore {
         );
 
         self.atlas.before_frame();
+        crate::fast::dynamic_textures::flush_uploads(&self.resources.device);
         self.ensure_intermediate_textures(size);
 
         let gamma_params = GammaParams {
@@ -1638,7 +1644,9 @@ impl WgpuRendererCore {
                     }
                     // Surfaces are macOS-only for video playback and are not
                     // implemented by the WGPU renderer.
-                    PrimitiveBatch::Surfaces(_surfaces) => {}
+                    PrimitiveBatch::Surfaces(range) => {
+                        crate::fast::paint_surface::draw_core(self, scene, range, &mut pass)
+                    }
                 }
             }
         }
@@ -2266,6 +2274,7 @@ impl WgpuRenderer {
 
         let surface = if needs_new_context {
             log::warn!("GPU device lost, recreating context...");
+            crate::fast::app_context::device_lost();
 
             // Drop old resources to release Arc<Device>/Arc<Queue> and GPU resources
             self.state = RendererState::Released;
@@ -2285,6 +2294,7 @@ impl WgpuRenderer {
                 &config,
                 self.compositor_gpu,
             )?;
+            crate::fast::app_context::publish(&new_context);
             *gpu_context.borrow_mut() = Some(new_context);
             surface
         } else {
@@ -2301,6 +2311,7 @@ impl WgpuRenderer {
         self.atlas.handle_device_lost(context);
 
         let is_bgr = self.is_bgr;
+        let fast_options = self.fast_options;
         *self = Self::new_internal(
             Some(gpu_context.clone()),
             context,
@@ -2311,6 +2322,7 @@ impl WgpuRenderer {
             self.atlas.clone(),
         )?;
         self.set_subpixel_layout(is_bgr);
+        crate::fast::renderer_options::RendererOptions::apply(fast_options, self);
 
         log::info!("GPU recovery complete");
         Ok(())
@@ -2622,14 +2634,14 @@ impl RenderingParameters {
         let gamma = env::var("ZED_FONTS_GAMMA")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(1.8_f32)
+            .unwrap_or(crate::fast::renderer_options::DEFAULT_FONTS_GAMMA)
             .clamp(1.0, 2.2);
         let gamma_ratios = get_gamma_correction_ratios(gamma);
 
         let grayscale_enhanced_contrast = env::var("ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(1.0_f32)
+            .unwrap_or(crate::fast::renderer_options::DEFAULT_GRAYSCALE_ENHANCED_CONTRAST)
             .max(0.0);
 
         let subpixel_enhanced_contrast = env::var("ZED_FONTS_SUBPIXEL_ENHANCED_CONTRAST")

@@ -105,7 +105,7 @@ fn rounded_overflow_frame_cost(cx: &mut gpui::TestAppContext) {
 #[test]
 fn harness_renders_a_quad_at_the_right_pixels() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let mut scene = Scene::default();
@@ -159,7 +159,7 @@ fn rounded_overflow_inside_scroll_tiles_matches_direct_pixels(cx: &mut gpui::Tes
 #[test]
 fn a_rasterized_tile_equals_the_same_content_drawn_directly() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let direct = harness.render(
@@ -170,13 +170,13 @@ fn a_rasterized_tile_equals_the_same_content_drawn_directly() {
     let tiles = [(0, 0), (1, 0), (0, 1), (1, 1)];
     let content = content(&harness, (0., 0.), no_mask().bounds, Paths::With);
     let assembled = rasterize_and_assemble(&mut harness, content, &tiles);
-    assert_same_pixels(&assembled, &direct, 1024);
+    assert_pixels_within(&assembled, &direct, 1024, harness.pixel_tolerance());
 }
 
 #[test]
 fn tiles_of_negative_coordinates_rasterize_like_positive_ones() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let direct = harness.render(
@@ -192,30 +192,32 @@ fn tiles_of_negative_coordinates_rasterize_like_positive_ones() {
         Paths::With,
     );
     let assembled = rasterize_and_assemble(&mut harness, shifted, &tiles);
-    assert_same_pixels(&assembled, &direct, 1024);
+    assert_pixels_within(&assembled, &direct, 1024, harness.pixel_tolerance());
 }
 
 #[test]
 fn a_composited_layer_equals_direct_drawing() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     composite_and_compare(&mut harness, (37., -91.), Paths::Without);
 }
 
-/// Paths are drawn exactly when the content moved by an even number of
-/// device pixels since its tiles were rasterized. At an odd translation an
-/// antialiased path edge pixel can come out one level apart: the path
-/// shader's `dpdx` and `dpdy` are differences within 2×2 pixel quads,
-/// which then pair other pixels.
+/// Paths are drawn exactly when the content moved by any whole number of
+/// device pixels since its tiles were rasterized: the path shader computes
+/// curve coordinates and their derivatives from each triangle's own
+/// vertices, not from interpolation or 2×2 pixel quad differences, which
+/// depend on where the triangle lies on the target.
 #[test]
-fn paths_composite_exactly_at_even_translations() {
+fn paths_composite_exactly_at_whole_pixel_translations() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
-    composite_and_compare(&mut harness, (38., -92.), Paths::With);
+    for translation in [(38., -92.), (37., -91.)] {
+        composite_and_compare(&mut harness, translation, Paths::With);
+    }
 }
 
 /// Paths something draws over stay out of the tiles: the core draws them,
@@ -225,7 +227,7 @@ fn paths_composite_exactly_at_even_translations() {
 #[test]
 fn covered_paths_drawn_over_the_tiles_equal_direct_drawing() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     for translation in [(37., -91.), (38., -92.), (3., 5.), (101., -233.)] {
@@ -297,11 +299,11 @@ fn composite_and_compare(harness: &mut Harness, translation: (f32, f32), paths: 
     composited.layers.frames.push(layer);
     composited.finish();
     let actual = harness.render(&composited, window, rgba(0x000000ff));
-    assert_same_pixels(&actual, &expected, 700);
+    assert_pixels_within(&actual, &expected, 700, harness.pixel_tolerance());
 
     // A frame that only scrolled draws the cached tiles again.
     let actual = harness.render(&composited, window, rgba(0x000000ff));
-    assert_same_pixels(&actual, &expected, 700);
+    assert_pixels_within(&actual, &expected, 700, harness.pixel_tolerance());
 }
 
 #[test]
@@ -385,7 +387,7 @@ fn tiles_are_evicted_least_recently_composited_first_within_the_budget() {
 #[test]
 fn resize_releases_every_tile() {
     let Some(mut harness) = Harness::new() else {
-        eprintln!("skipped: no wgpu adapter");
+        crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
     let key = LayerKey(1);
@@ -406,7 +408,7 @@ fn resize_releases_every_tile() {
         device_size(1024, 1024),
         background(),
     );
-    assert_same_pixels(&assembled, &direct, 1024);
+    assert_pixels_within(&assembled, &direct, 1024, harness.pixel_tolerance());
 }
 
 fn content_again(harness: &Harness) -> Scene {
@@ -503,9 +505,20 @@ fn rasterize_and_assemble(harness: &mut Harness, content: Scene, tiles: &[(i32, 
 }
 
 fn assert_same_pixels(actual: &[u8], expected: &[u8], width: usize) {
+    assert_pixels_within(actual, expected, width, 0);
+}
+
+/// Fails unless every channel of `actual` is within `tolerance` levels of
+/// `expected`; see [`Harness::pixel_tolerance`] for when that is not zero.
+fn assert_pixels_within(actual: &[u8], expected: &[u8], width: usize, tolerance: u8) {
     assert_eq!(actual.len(), expected.len());
     let differing: Vec<(usize, usize)> = (0..actual.len() / 4)
-        .filter(|i| actual[i * 4..i * 4 + 4] != expected[i * 4..i * 4 + 4])
+        .filter(|i| {
+            actual[i * 4..i * 4 + 4]
+                .iter()
+                .zip(&expected[i * 4..i * 4 + 4])
+                .any(|(a, e)| a.abs_diff(*e) > tolerance)
+        })
         .map(|i| (i % width, i / width))
         .collect();
     if differing.is_empty() {
@@ -842,6 +855,7 @@ pub(super) struct Harness {
     state: FrameState,
     dynamic_textures: crate::fast::dynamic_textures::TextureStore,
     dual_source_blending: bool,
+    software: bool,
 }
 
 /// The path intermediate texture, and its multisampled twin, of one size.
@@ -854,16 +868,11 @@ struct PathTargets {
 }
 
 impl Harness {
-    /// A harness on the first adapter wgpu offers without a surface, or
-    /// `None` when there is none (the tests then skip).
+    /// A harness on the first adapter wgpu offers without a surface, on the
+    /// backends windows use on this OS (DX12 on Windows), or `None` when
+    /// there is none (the tests then skip, or fail under GPUI_REQUIRE_GPU).
     pub(super) fn new() -> Option<Harness> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL | wgpu::Backends::METAL,
-            flags: wgpu::InstanceFlags::default(),
-            backend_options: wgpu::BackendOptions::default(),
-            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
-            display: None,
-        });
+        let instance = crate::fast::rounded_clip::headless_instance();
         let adapter = gpui::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
@@ -871,6 +880,7 @@ impl Harness {
             apply_limit_buckets: false,
         }))
         .ok()?;
+        let software = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
         let (device, queue, dual_source_blending, color_texture_format) =
             gpui::block_on(crate::WgpuContext::create_device(&adapter)).ok()?;
         let (device, queue) = (Arc::new(device), Arc::new(queue));
@@ -971,7 +981,21 @@ impl Harness {
             state: FrameState::default(),
             dynamic_textures: crate::fast::dynamic_textures::TextureStore::default(),
             dual_source_blending,
+            software,
         })
+    }
+
+    /// How many levels a channel may differ between tiles and direct drawing:
+    /// none on a GPU, one on a software rasterizer. A path in a tile lies
+    /// across its render target's edge where it does not in the window, and
+    /// software rasterizers (WARP on Windows CI) resolve the coverage of such
+    /// a triangle's edge samples differently, though the shader's inputs are
+    /// bitwise identical; on WARP that leaves faint path edge pixels one level
+    /// apart. Production draws paths over the tiles, never into them
+    /// (`gpui::fast::layers::overlay`). lavapipe differs by whole samples and
+    /// does not pass these tests.
+    pub(super) fn pixel_tolerance(&self) -> u8 {
+        if self.software { 1 } else { 0 }
     }
 
     pub(super) fn device(&self) -> &wgpu::Device {

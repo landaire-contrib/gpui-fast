@@ -58,10 +58,6 @@ pub fn new_renderer(
     MetalRenderer::new(context, transparent, use_display_p3)
 }
 
-pub fn new_overlay_renderer(context: self::Context, base: &Renderer) -> Result<Renderer> {
-    crate::fast::composition::new_overlay_renderer(context, base)
-}
-
 pub struct InstanceBufferPool {
     buffer_size: usize,
     buffers: Vec<InstanceBuffer>,
@@ -196,7 +192,7 @@ impl MetalRenderer {
         Self::new_internal(device, Some(layer), !transparent, instance_buffer_pool)
     }
 
-    pub(crate) fn configure_layer(
+    fn configure_layer(
         layer: &CAMetalLayer,
         device: &ProtocolObject<dyn MTLDevice>,
         transparent: bool,
@@ -272,7 +268,7 @@ impl MetalRenderer {
         MTLCreateSystemDefaultDevice().context("accessing a compatible Metal device")
     }
 
-    pub(crate) fn new_internal(
+    fn new_internal(
         device: Retained<ProtocolObject<dyn MTLDevice>>,
         layer: Option<Retained<CAMetalLayer>>,
         opaque: bool,

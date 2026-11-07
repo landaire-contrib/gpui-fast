@@ -73,7 +73,8 @@ fn atlas_upload(criterion: &mut Criterion<BenchMeasurement>) {
 
 impl Fixture {
     fn new(kind: AtlasTextureKind, dimensions: Size<DevicePixels>, count: usize) -> Result<Self> {
-        let renderer = gpui_platform::current_headless_renderer()?.context("Metal unavailable")?;
+        let renderer = gpui_platform::current_headless_renderer()?
+            .context("no headless renderer on this platform")?;
         let atlas = renderer.sprite_atlas();
         Ok(Self {
             renderer,

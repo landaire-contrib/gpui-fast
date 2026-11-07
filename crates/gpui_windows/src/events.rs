@@ -878,7 +878,6 @@ impl WindowsWindowInner {
         let is_maximized = self.state.is_maximized();
         let new_scale_factor = new_dpi / USER_DEFAULT_SCREEN_DPI as f32;
         self.state.scale_factor.set(new_scale_factor);
-        crate::fast::layers::release_tiles(&mut self.state.renderer.borrow_mut());
         self.state.border_offset.update(handle).log_err();
 
         self.state
@@ -1356,7 +1355,6 @@ impl WindowsWindowInner {
         };
         let mut request_frame = self.state.callbacks.request_frame.take()?;
         crate::fast::frame_schedule::validate_current_paint(handle);
-        crate::fast::device_recovery::retry_resize(self);
         #[cfg(test)]
         crate::fast::native_tests::paint_started(handle);
 
@@ -1383,7 +1381,7 @@ impl WindowsWindowInner {
             |(at, source)| (Some(at), source),
         );
         request_frame(RequestFrameOptions {
-            require_presentation: false,
+            require_presentation: crate::fast::renderer::take_present_pending(self),
             force_render,
             signal_at,
             signal_source,

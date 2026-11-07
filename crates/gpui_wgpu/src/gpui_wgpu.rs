@@ -5,7 +5,16 @@ mod wgpu_context;
 mod wgpu_renderer;
 
 pub use cosmic_text_system::*;
-pub use fast::dynamic_textures::WgpuDynamicTexture;
+#[cfg(not(target_family = "wasm"))]
+pub use fast::{
+    adapter_preference::{WgpuAdapterPreference, describe_adapters, set_adapter_preference},
+    app_context::{
+        WgpuAppContext, WgpuContextGeneration, WgpuContextRetired, WgpuContextRetirement,
+        app_context, on_device_lost, release_app_context,
+    },
+    native_surface::WgpuSurfaceSource,
+};
+pub use fast::{dynamic_textures::WgpuDynamicTexture, renderer_options::WgpuTextRenderingParams};
 pub use wgpu;
 pub use wgpu_atlas::*;
 pub use wgpu_context::*;

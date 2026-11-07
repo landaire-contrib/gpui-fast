@@ -9,7 +9,9 @@ mod dispatcher;
 pub mod display_link;
 mod fast;
 pub mod keychain;
+#[cfg(fast_metal_renderer)]
 mod metal_atlas;
+#[cfg(fast_metal_renderer)]
 pub mod metal_renderer;
 pub mod process_info;
 
