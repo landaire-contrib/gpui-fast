@@ -270,10 +270,12 @@ No application-specific timeline policy belongs here.
   `WgpuContext::instance` selects DX12 on Windows and Metal on Apple targets
   (Vulkan and GL elsewhere, as upstream). `gpui_wgpu` exports the
   `WgpuSurfaceSource` trait, and `WgpuRenderer` gains `new_from_source`,
-  `recover_from_source`, `new_sharing_atlas_from_source` and
-  `replace_surface_from_source`. Upstream only builds surfaces from raw
-  window handles, while DirectComposition visuals and `CAMetalLayer`s need
-  surfaces the platform creates, on whichever instance owns the device.
+  `recover_from_source`, `new_sharing_atlas_from_source`,
+  `replace_surface_from_source` and `reconfigure_surface`, which reports a
+  failed swap chain configure so the platform can retry it. Upstream only
+  builds surfaces from raw window handles, while DirectComposition visuals
+  and `CAMetalLayer`s need surfaces the platform creates, on whichever
+  instance owns the device.
   `WgpuRenderer` also gains `set_clear_color`, `set_text_rendering_params`
   (with the exported `WgpuTextRenderingParams`) and `set_color_space`, which
   those platforms' renderers set from the OS (an opaque clear color under a
