@@ -1063,7 +1063,22 @@ struct PathRasterizationVertex {
     bounds: Bounds,
 }
 
+struct PathSt { st: vec2<f32>, dx: vec2<f32>, dy: vec2<f32> }
 
+// Curve coordinates and their screen derivatives from the triangle starting at
+// `first`, relative to that vertex, so they don't depend on where it lies on screen.
+fn path_st_exact(first: u32, position: vec2<f32>) -> PathSt {
+    let v0 = load_path_vertex(first);
+    let e1 = load_path_vertex(first + 1u).xy_position - v0.xy_position;
+    let e2 = load_path_vertex(first + 2u).xy_position - v0.xy_position;
+    let s1 = load_path_vertex(first + 1u).st_position - v0.st_position;
+    let s2 = load_path_vertex(first + 2u).st_position - v0.st_position;
+    let det = e1.x * e2.y - e1.y * e2.x;
+    let dx = (s1 * e2.y - s2 * e1.y) / det;
+    let dy = (s2 * e1.x - s1 * e2.x) / det;
+    let d = position - v0.xy_position;
+    return PathSt(v0.st_position + dx * d.x + dy * d.y, dx, dy);
+}
 
 struct PathRasterizationVarying {
     @builtin(position) position: vec4<f32>,
@@ -1087,8 +1102,10 @@ fn vs_path_rasterization(@builtin(vertex_index) vertex_id: u32) -> PathRasteriza
 
 @fragment
 fn fs_path_rasterization(input: PathRasterizationVarying) -> @location(0) vec4<f32> {
-    let dx = dpdx(input.st_position);
-    let dy = dpdy(input.st_position);
+    let path = path_st(input.vertex_id, input.position.xy, input.st_position);
+    let dx = path.dx;
+    let dy = path.dy;
+    let st_position = path.st;
     if (any(input.clip_distances < vec4<f32>(0.0))) {
         return vec4<f32>(0.0);
     }
@@ -1102,8 +1119,8 @@ fn fs_path_rasterization(input: PathRasterizationVarying) -> @location(0) vec4<f
         // If the gradient is too small, return a solid color.
         alpha = 1.0;
     } else {
-        let gradient = 2.0 * input.st_position.xx * vec2<f32>(dx.x, dy.x) - vec2<f32>(dx.y, dy.y);
-        let f = input.st_position.x * input.st_position.x - input.st_position.y;
+        let gradient = 2.0 * st_position.xx * vec2<f32>(dx.x, dy.x) - vec2<f32>(dx.y, dy.y);
+        let f = st_position.x * st_position.x - st_position.y;
         let distance = f / length(gradient);
         alpha = saturate(0.5 - distance);
     }

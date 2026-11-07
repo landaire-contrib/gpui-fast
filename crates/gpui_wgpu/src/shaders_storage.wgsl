@@ -25,6 +25,11 @@ fn load_path_vertex(vertex_id: u32) -> PathRasterizationVertex {
     return b_path_vertices[vertex_id];
 }
 
+// Each draw's path vertices start at a multiple of three in the binding.
+fn path_st(vertex_id: u32, position: vec2<f32>, interpolated: vec2<f32>) -> PathSt {
+    return path_st_exact(vertex_id - vertex_id % 3u, position);
+}
+
 fn load_path_sprite(instance_id: u32) -> PathSprite {
     return b_path_sprites[instance_id];
 }

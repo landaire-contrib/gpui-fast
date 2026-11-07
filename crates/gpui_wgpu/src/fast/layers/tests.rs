@@ -204,18 +204,20 @@ fn a_composited_layer_equals_direct_drawing() {
     composite_and_compare(&mut harness, (37., -91.), Paths::Without);
 }
 
-/// Paths are drawn exactly when the content moved by an even number of
-/// device pixels since its tiles were rasterized. At an odd translation an
-/// antialiased path edge pixel can come out one level apart: the path
-/// shader's `dpdx` and `dpdy` are differences within 2×2 pixel quads,
-/// which then pair other pixels.
+/// Paths are drawn exactly when the content moved by any whole number of
+/// device pixels since its tiles were rasterized: the path shader computes
+/// curve coordinates and their derivatives from each triangle's own
+/// vertices, not from interpolation or 2×2 pixel quad differences, which
+/// depend on where the triangle lies on the target.
 #[test]
-fn paths_composite_exactly_at_even_translations() {
+fn paths_composite_exactly_at_whole_pixel_translations() {
     let Some(mut harness) = Harness::new() else {
         crate::fast::test_gpu::skip_without_gpu("no wgpu adapter");
         return;
     };
-    composite_and_compare(&mut harness, (38., -92.), Paths::With);
+    for translation in [(38., -92.), (37., -91.)] {
+        composite_and_compare(&mut harness, translation, Paths::With);
+    }
 }
 
 /// Paths something draws over stay out of the tiles: the core draws them,

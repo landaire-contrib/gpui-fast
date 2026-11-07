@@ -216,6 +216,12 @@ fn load_path_vertex(vertex_id: u32) -> PathRasterizationVertex {
     );
 }
 
+// Draws start anywhere in the shared texture and WebGL has no first provoking
+// vertex, so the triangle is unknown here: use the interpolated values.
+fn path_st(vertex_id: u32, position: vec2<f32>, interpolated: vec2<f32>) -> PathSt {
+    return PathSt(interpolated, dpdx(interpolated), dpdy(interpolated));
+}
+
 fn load_path_sprite(instance_id: u32) -> PathSprite {
     var cursor = instance_cursor(instance_id * 4u);
     return PathSprite(read_bounds(&cursor));
