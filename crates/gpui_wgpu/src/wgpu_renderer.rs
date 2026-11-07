@@ -2272,6 +2272,7 @@ impl WgpuRenderer {
 
         let surface = if needs_new_context {
             log::warn!("GPU device lost, recreating context...");
+            crate::fast::app_context::device_lost();
 
             // Drop old resources to release Arc<Device>/Arc<Queue> and GPU resources
             self.state = RendererState::Released;

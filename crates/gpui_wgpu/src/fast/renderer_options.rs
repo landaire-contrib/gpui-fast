@@ -38,6 +38,10 @@ pub(crate) struct RendererOptions {
     clear_color: wgpu::Color,
     text: Option<WgpuTextRenderingParams>,
     color_space: wgpu::SurfaceColorSpace,
+    /// Whether the device the renderer last drew with was a software
+    /// adapter, so recovering from its loss may select one again.
+    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    pub(crate) software_adapter: bool,
 }
 
 impl Default for RendererOptions {
@@ -46,6 +50,7 @@ impl Default for RendererOptions {
             clear_color: wgpu::Color::TRANSPARENT,
             text: None,
             color_space: wgpu::SurfaceColorSpace::Auto,
+            software_adapter: false,
         }
     }
 }

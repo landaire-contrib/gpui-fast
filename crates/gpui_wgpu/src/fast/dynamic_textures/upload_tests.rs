@@ -186,8 +186,18 @@ fn cpu_textures_keep_their_contents_on_a_newly_published_context(cx: &mut gpui::
         })
         .unwrap();
 
+    static RETIRED: Mutex<Vec<crate::WgpuContextRetired>> = Mutex::new(Vec::new());
+    crate::on_device_lost(|retired| RETIRED.lock().push(*retired));
     let (other, other_format) = WgpuContext::create_headless().expect("second GPU device");
     crate::fast::app_context::publish(&other);
+    assert!(
+        RETIRED
+            .lock()
+            .iter()
+            .any(|retired| retired.generation == first
+                && retired.reason == crate::WgpuContextRetirement::Replaced),
+        "the replaced context is retired"
+    );
     let published = crate::app_context().expect("published");
     assert!(published.generation > first);
     assert_eq!(published.context.device.as_ref(), other.device.as_ref());
@@ -328,4 +338,94 @@ fn cpu_writes_coalesce_until_a_frame_uploads_them(cx: &mut gpui::TestAppContext)
     assert_eq!(pending(), None);
     let (shared, _) = WgpuContext::new_headless().expect("GPU required");
     crate::fast::app_context::publish(&shared);
+}
+
+/// Releasing the context tells the application, refuses new CPU textures,
+/// keeps the contents written meanwhile, and the next published context
+/// shows them under a later generation.
+#[gpui::test]
+fn a_released_context_is_retired_and_its_textures_return_with_the_next(
+    cx: &mut gpui::TestAppContext,
+) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let _published = PUBLISHED.lock();
+    let (context, _) = WgpuContext::new_headless().expect("GPU required");
+    crate::fast::app_context::publish(&context);
+    let first = crate::app_context().expect("published").generation;
+    static RELEASED: Mutex<Vec<crate::WgpuContextRetired>> = Mutex::new(Vec::new());
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    crate::on_device_lost(|retired| {
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        RELEASED.lock().push(*retired);
+    });
+
+    let window = cx.update(|cx| {
+        cx.open_window(Default::default(), |_, cx| cx.new(|_| Showcase(None)))
+            .unwrap()
+    });
+    let texture = window
+        .update(cx, |showcase, window, cx| {
+            let texture = window
+                .create_dynamic_texture(
+                    size(DevicePixels(16), DevicePixels(16)),
+                    &rows(16, 16, 64, RED),
+                    64,
+                )
+                .unwrap();
+            showcase.0 = Some(texture);
+            cx.notify();
+            texture
+        })
+        .unwrap();
+
+    // Not lost: nothing is retired.
+    crate::fast::app_context::device_lost();
+    assert_eq!(CALLS.load(Ordering::Relaxed), 0);
+
+    crate::release_app_context();
+    crate::release_app_context();
+    assert_eq!(CALLS.load(Ordering::Relaxed), 1, "retired once");
+    let retired = RELEASED.lock()[0];
+    assert_eq!(retired.generation, first);
+    assert_eq!(retired.reason, crate::WgpuContextRetirement::Released);
+    assert!(crate::app_context().is_none());
+    assert!(context.fast_dynamic_textures.view(texture.id()).is_none());
+
+    window
+        .update(cx, |_, window, _| {
+            assert!(
+                window
+                    .create_dynamic_texture(
+                        size(DevicePixels(4), DevicePixels(4)),
+                        &rows(4, 4, 16, RED),
+                        16
+                    )
+                    .is_err(),
+                "no texture is created without a context"
+            );
+            window
+                .update_dynamic_texture(
+                    texture,
+                    Bounds {
+                        origin: point(DevicePixels(0), DevicePixels(0)),
+                        size: size(DevicePixels(16), DevicePixels(16)),
+                    },
+                    &rows(16, 16, 64, BLUE),
+                    64,
+                )
+                .expect("writes are kept while released");
+        })
+        .unwrap();
+
+    crate::fast::app_context::publish(&context);
+    assert!(crate::app_context().expect("published").generation > first);
+    let mut renderer = WgpuHeadlessRenderer::new().unwrap();
+    window
+        .update(cx, |_, window, cx| {
+            let (image, scale) = render(&mut renderer, window, cx);
+            pixel(&image, scale, 32., 32., [0, 0, 255, 255]);
+            window.remove_dynamic_texture(texture);
+        })
+        .unwrap();
 }

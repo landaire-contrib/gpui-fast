@@ -47,16 +47,41 @@ pub trait WgpuSurfaceSource {
     fn display_handle(&self) -> Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>> {
         None
     }
+
+    /// The backends of an instance created for this source: the first
+    /// window's, and after device loss. Defaults to the OS's (DX12 on
+    /// Windows, Metal on Apple targets, Vulkan and GL elsewhere). A window
+    /// sharing an existing context gets its instance, whatever this says.
+    fn backends(&self) -> wgpu::Backends {
+        backends()
+    }
+}
+
+impl WgpuContext {
+    /// An instance with `backends`, like [`WgpuContext::instance`].
+    pub fn instance_with_backends(
+        backends: wgpu::Backends,
+        display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
+    ) -> wgpu::Instance {
+        wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            flags: wgpu::InstanceFlags::default(),
+            backend_options: wgpu::BackendOptions::default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            display,
+        })
+    }
 }
 
 impl WgpuRenderer {
     /// Creates a renderer for a window whose surface `source` creates.
     ///
     /// The first renderer on `gpu_context` creates the context: it makes a
-    /// new instance with [`WgpuContext::instance`], has `source` create a
-    /// surface on it, selects an adapter that can present to that surface and
-    /// publishes the context through [`crate::app_context`]. Later renderers
-    /// share the context and get their surface from its instance.
+    /// new instance with the source's backends, has `source` create a
+    /// surface on it, selects an adapter that can present to that surface
+    /// (software adapters included) and publishes the context through
+    /// [`crate::app_context`]. Later renderers share the context and get
+    /// their surface from its instance.
     pub fn new_from_source(
         gpu_context: GpuContext,
         source: &dyn WgpuSurfaceSource,
@@ -67,8 +92,9 @@ impl WgpuRenderer {
             .borrow()
             .as_ref()
             .map(|context| context.instance.clone());
-        let instance =
-            existing_instance.unwrap_or_else(|| WgpuContext::instance(source.display_handle()));
+        let instance = existing_instance.unwrap_or_else(|| {
+            WgpuContext::instance_with_backends(source.backends(), source.display_handle())
+        });
         let surface = source
             .create_surface(&instance)
             .map_err(|error| error.context("Failed to create surface"))?;
@@ -107,10 +133,13 @@ impl WgpuRenderer {
     /// Recovers from a lost device, like [`WgpuRenderer::recover`], for a
     /// renderer made by [`Self::new_from_source`].
     ///
-    /// The first window to recover creates a new instance and context, which
-    /// is published through [`crate::app_context`] with a new generation;
-    /// later windows adopt it. On error, keep the window and retry on a later
-    /// frame: the GPU may need time to return after a reset or resume.
+    /// The first window to recover runs the [`crate::on_device_lost`]
+    /// callbacks, then creates a new instance and context, which is
+    /// published through [`crate::app_context`] with a new generation; later
+    /// windows adopt it. A software adapter is accepted only if the lost
+    /// device was one, or the adapter preference asks for it. On error, keep
+    /// the window and retry on a later frame: the GPU may need time to return
+    /// after a reset or resume.
     pub fn recover_from_source(&mut self, source: &dyn WgpuSurfaceSource) -> anyhow::Result<()> {
         let gpu_context = Rc::clone(
             self.context
@@ -125,20 +154,29 @@ impl WgpuRenderer {
 
         let surface = if needs_new_context {
             log::warn!("GPU device lost, recreating context...");
+            crate::fast::app_context::device_lost();
+            if let Some(specs) = self.gpu_specs() {
+                self.fast_options.software_adapter = specs.is_software_emulated;
+            }
             // Release this renderer's device objects before creating another device.
             self.destroy();
             *gpu_context.borrow_mut() = None;
             // Give the driver time to settle after a reset before selecting an adapter.
             std::thread::sleep(std::time::Duration::from_millis(350));
 
-            let instance = WgpuContext::instance(source.display_handle());
+            let instance =
+                WgpuContext::instance_with_backends(source.backends(), source.display_handle());
             let surface = source.create_surface(&instance)?;
-            let context = WgpuContext::new_rejecting_software(
-                instance,
-                &surface,
-                &config,
-                self.compositor_gpu,
-            )?;
+            let context = if self.fast_options.software_adapter {
+                WgpuContext::new(instance, &surface, &config, self.compositor_gpu)?
+            } else {
+                WgpuContext::new_rejecting_software(
+                    instance,
+                    &surface,
+                    &config,
+                    self.compositor_gpu,
+                )?
+            };
             crate::fast::app_context::publish(&context);
             *gpu_context.borrow_mut() = Some(context);
             surface

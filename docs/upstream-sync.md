@@ -265,7 +265,12 @@ No application-specific timeline policy belongs here.
   without this an application cannot render into a texture GPUI samples. The
   renderer publishes the context it creates for the first window and the one
   it creates after device loss; the generation tells the application to
-  recreate its GPU objects.
+  recreate its GPU objects. `on_device_lost` (with `WgpuContextRetired` and
+  `WgpuContextRetirement`) runs app callbacks when GPUI stops drawing with
+  the published context, before a recovering renderer creates another
+  device, so the application drops its objects on the old one first; a
+  device is only freed once nothing holds it. `release_app_context` is the
+  same for a platform releasing its GPU while it has nothing to draw.
   `gpui_wgpu` also exports `set_adapter_preference`, `WgpuAdapterPreference`
   and `describe_adapters`: an application that used to choose the adapter
   of its own wgpu device (by name, or a software adapter) now renders on
@@ -274,7 +279,9 @@ No application-specific timeline policy belongs here.
 - Native wgpu windows on Windows and macOS (`gpui_wgpu::fast::native_surface`):
   `WgpuContext::instance` selects DX12 on Windows and Metal on Apple targets
   (Vulkan and GL elsewhere, as upstream). `gpui_wgpu` exports the
-  `WgpuSurfaceSource` trait, and `WgpuRenderer` gains `new_from_source`,
+  `WgpuSurfaceSource` trait (whose `backends` lets a platform fall back to
+  another backend, built with `WgpuContext::instance_with_backends`), and
+  `WgpuRenderer` gains `new_from_source`,
   `recover_from_source`, `new_sharing_atlas_from_source`,
   `replace_surface_from_source` and `reconfigure_surface`, which reports a
   failed swap chain configure so the platform can retry it. Upstream only

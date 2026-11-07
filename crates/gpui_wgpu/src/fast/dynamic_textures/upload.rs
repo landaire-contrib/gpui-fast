@@ -44,6 +44,12 @@ pub(crate) fn use_context(context: &WgpuContext) {
     BACKEND.state.lock().use_context(context);
 }
 
+/// Moves CPU dynamic textures off the published device, keeping their
+/// contents for the next one. Creating a texture fails until then.
+pub(crate) fn release() {
+    BACKEND.state.lock().release();
+}
+
 /// Uploads the writes made since the last frame on `device`. Called by every
 /// frame before it submits, so the uploads are ordered before its sampling.
 pub(crate) fn flush(device: &wgpu::Device) {
@@ -71,7 +77,8 @@ struct UploadState {
 }
 
 struct UploadTexture {
-    texture: wgpu::Texture,
+    /// `None` while no context is published.
+    texture: Option<wgpu::Texture>,
     size: Size<DevicePixels>,
     /// The texture's latest contents: tightly packed BGRA8 rows.
     contents: Vec<u8>,
@@ -113,6 +120,9 @@ impl UploadTexture {
 
     /// Writes the dirty region of `contents` into the texture.
     fn upload(&mut self, context: &WgpuContext) {
+        let Some(texture) = &self.texture else {
+            return;
+        };
         let Some(dirty) = self.dirty.take() else {
             return;
         };
@@ -124,7 +134,7 @@ impl UploadTexture {
             depth_or_array_layers: 1,
         };
         let destination = wgpu::TexelCopyTextureInfo {
-            texture: &self.texture,
+            texture,
             mip_level: 0,
             origin: wgpu::Origin3d {
                 x: dirty.origin.x.0 as u32,
@@ -133,7 +143,7 @@ impl UploadTexture {
             },
             aspect: wgpu::TextureAspect::All,
         };
-        if self.texture.format() == wgpu::TextureFormat::Rgba8Unorm {
+        if texture.format() == wgpu::TextureFormat::Rgba8Unorm {
             // Atlas textures fall back to RGBA8 on adapters without BGRA8
             // sampling; swizzle only the rows being uploaded.
             let row_bytes = extent.width as usize * 4;
@@ -142,7 +152,7 @@ impl UploadTexture {
                 let start = offset as usize + row * stride as usize;
                 rows.extend_from_slice(&self.contents[start..start + row_bytes]);
             }
-            let rows = crate::wgpu_atlas::swizzle_upload_data(&rows, self.texture.format());
+            let rows = crate::wgpu_atlas::swizzle_upload_data(&rows, texture.format());
             context.queue.write_texture(
                 destination,
                 &rows,
@@ -170,29 +180,41 @@ impl UploadTexture {
 
 impl UploadState {
     fn use_context(&mut self, context: &WgpuContext) {
-        if let Some(current) = &self.context {
-            if current.device.as_ref() == context.device.as_ref() {
-                return;
-            }
-            let mut views = current.fast_dynamic_textures.0.lock();
-            for id in self.textures.keys() {
-                views.remove(id);
-            }
+        if self
+            .context
+            .as_ref()
+            .is_some_and(|current| current.device.as_ref() == context.device.as_ref())
+        {
+            return;
         }
+        self.release();
         for (id, upload) in &mut self.textures {
-            upload.texture = create_texture(context, upload.size);
-            register(context, *id, &upload.texture);
+            let texture = create_texture(context, upload.size);
+            register(context, *id, &texture);
+            upload.texture = Some(texture);
             let whole = upload.whole();
             upload.mark_dirty(whole);
         }
         self.context = Some(context.clone());
     }
 
+    /// Drops the textures' GPU objects and the context, keeping the contents.
+    fn release(&mut self) {
+        let Some(context) = self.context.take() else {
+            return;
+        };
+        let mut views = context.fast_dynamic_textures.0.lock();
+        for (id, upload) in &mut self.textures {
+            views.remove(id);
+            upload.texture = None;
+        }
+    }
+
     fn context(&self) -> Result<&WgpuContext> {
         let context = self
             .context
             .as_ref()
-            .context("no wgpu context has been published yet")?;
+            .context("no wgpu context is published")?;
         anyhow::ensure!(!context.device_lost(), "the GPU device is lost");
         Ok(context)
     }
@@ -254,7 +276,7 @@ impl DynamicTexturePlatform for UploadTextures {
         let texture = create_texture(context, size);
         register(context, id, &texture);
         let mut upload = UploadTexture {
-            texture,
+            texture: Some(texture),
             size,
             contents: vec![0; size.width.0 as usize * size.height.0 as usize * 4],
             dirty: None,
@@ -271,8 +293,9 @@ impl DynamicTexturePlatform for UploadTextures {
         bounds: Bounds<DevicePixels>,
         bytes: &[u8],
     ) -> Result<()> {
+        // Stored while no context is published, too; the next device
+        // receives it with the rest of the contents.
         let mut state = self.state.lock();
-        state.context()?;
         state
             .textures
             .get_mut(&id)
