@@ -91,6 +91,19 @@ struct SharedGpu {
     backend: Cell<Option<wgpu::Backends>>,
 }
 
+impl Drop for SharedGpu {
+    /// Runs as a thread-local destructor, when wgpu-core's own thread-locals
+    /// may already be destroyed: dropping a device or queue then panics. The
+    /// platform releases the context when its run loop ends ([`release_gpu`]);
+    /// one still held at thread exit is leaked, and the process exit reclaims
+    /// it.
+    fn drop(&mut self) {
+        if let Some(context) = self.context.borrow_mut().take() {
+            std::mem::forget(context);
+        }
+    }
+}
+
 /// A window's renderer.
 pub(crate) struct WindowsRenderer {
     hwnd: HWND,
@@ -597,10 +610,11 @@ fn reorder_subpixel_coverage(bytes: &mut [u8]) {
     }
 }
 
-/// Forwarded to by `WindowsPlatform::detach_gpu`: releases the context once
-/// no window draws with it, including the copy published to applications, and
-/// forgets which backends worked, since the GPU may differ when the platform
-/// becomes windowed again.
+/// Forwarded to by `WindowsPlatform::detach_gpu`, and by `WindowsPlatform::run`
+/// once its run loop ends: releases the context, including the copy published
+/// to applications, while wgpu can still drop it, and forgets which backends
+/// worked, since the GPU may differ when the platform becomes windowed again.
+/// Windows still open keep their own references to the device.
 pub(crate) fn release_gpu() {
     // Applications release their objects on the device before GPUI does.
     gpui_wgpu::release_app_context();
@@ -767,7 +781,7 @@ mod tests {
             core::w,
         };
 
-        use super::super::{SHARED_GPU, WindowsRenderer};
+        use super::super::{SHARED_GPU, WindowsRenderer, release_gpu};
         use crate::DirectXDevices;
 
         const WHITE: [u8; 4] = [255, 255, 255, 255];
@@ -921,6 +935,11 @@ mod tests {
                 .expect("rendering a quad without DirectComposition");
             assert_pixel(&image, 16, 24, RED);
             assert_pixel(&image, 48, 24, WHITE);
+
+            // As the platform does when its run loop ends: the thread's shared
+            // context must not be dropped by its thread-local destructor.
+            drop((plain, renderer));
+            release_gpu();
         }
 
         /// DirectWrite's ClearType coverage reaches the screen's subpixels in
@@ -988,6 +1007,9 @@ mod tests {
                 "pixel was {:?}",
                 image.get_pixel(8, 8).0
             );
+
+            drop(renderer);
+            release_gpu();
         }
     }
 }

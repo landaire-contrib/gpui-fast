@@ -637,6 +637,7 @@ impl Platform for WindowsPlatform {
                 callback();
             },
         );
+        crate::fast::renderer::release_gpu();
     }
 
     fn quit(&self) {
