@@ -1,4 +1,5 @@
 // Modified by Longbridge for gpui-fast.
+// Modified for gpui-fast releases: adapted to wgpu =30.0.1.
 //! `PaintSurface`s: CoreVideo images from screen capture or video decoding,
 //! drawn as the Metal renderer drew them. Each biplanar full-range YCbCr
 //! image is imported plane by plane through a CoreVideo Metal texture cache,
@@ -337,7 +338,6 @@ fn import_plane(
                 view_formats: &[],
             },
             wgpu::TextureUses::RESOURCE,
-            true,
         )
     };
     Ok(texture.create_view(&wgpu::TextureViewDescriptor::default()))
