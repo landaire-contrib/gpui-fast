@@ -170,7 +170,7 @@ fn a_rasterized_tile_equals_the_same_content_drawn_directly() {
     let tiles = [(0, 0), (1, 0), (0, 1), (1, 1)];
     let content = content(&harness, (0., 0.), no_mask().bounds, Paths::With);
     let assembled = rasterize_and_assemble(&mut harness, content, &tiles);
-    assert_same_pixels(&assembled, &direct, 1024);
+    assert_pixels_within(&assembled, &direct, 1024, harness.pixel_tolerance());
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn tiles_of_negative_coordinates_rasterize_like_positive_ones() {
         Paths::With,
     );
     let assembled = rasterize_and_assemble(&mut harness, shifted, &tiles);
-    assert_same_pixels(&assembled, &direct, 1024);
+    assert_pixels_within(&assembled, &direct, 1024, harness.pixel_tolerance());
 }
 
 #[test]
@@ -299,11 +299,11 @@ fn composite_and_compare(harness: &mut Harness, translation: (f32, f32), paths: 
     composited.layers.frames.push(layer);
     composited.finish();
     let actual = harness.render(&composited, window, rgba(0x000000ff));
-    assert_same_pixels(&actual, &expected, 700);
+    assert_pixels_within(&actual, &expected, 700, harness.pixel_tolerance());
 
     // A frame that only scrolled draws the cached tiles again.
     let actual = harness.render(&composited, window, rgba(0x000000ff));
-    assert_same_pixels(&actual, &expected, 700);
+    assert_pixels_within(&actual, &expected, 700, harness.pixel_tolerance());
 }
 
 #[test]
@@ -408,7 +408,7 @@ fn resize_releases_every_tile() {
         device_size(1024, 1024),
         background(),
     );
-    assert_same_pixels(&assembled, &direct, 1024);
+    assert_pixels_within(&assembled, &direct, 1024, harness.pixel_tolerance());
 }
 
 fn content_again(harness: &Harness) -> Scene {
@@ -505,9 +505,20 @@ fn rasterize_and_assemble(harness: &mut Harness, content: Scene, tiles: &[(i32, 
 }
 
 fn assert_same_pixels(actual: &[u8], expected: &[u8], width: usize) {
+    assert_pixels_within(actual, expected, width, 0);
+}
+
+/// Fails unless every channel of `actual` is within `tolerance` levels of
+/// `expected`; see [`Harness::pixel_tolerance`] for when that is not zero.
+fn assert_pixels_within(actual: &[u8], expected: &[u8], width: usize, tolerance: u8) {
     assert_eq!(actual.len(), expected.len());
     let differing: Vec<(usize, usize)> = (0..actual.len() / 4)
-        .filter(|i| actual[i * 4..i * 4 + 4] != expected[i * 4..i * 4 + 4])
+        .filter(|i| {
+            actual[i * 4..i * 4 + 4]
+                .iter()
+                .zip(&expected[i * 4..i * 4 + 4])
+                .any(|(a, e)| a.abs_diff(*e) > tolerance)
+        })
         .map(|i| (i % width, i / width))
         .collect();
     if differing.is_empty() {
@@ -844,6 +855,7 @@ pub(super) struct Harness {
     state: FrameState,
     dynamic_textures: crate::fast::dynamic_textures::TextureStore,
     dual_source_blending: bool,
+    software: bool,
 }
 
 /// The path intermediate texture, and its multisampled twin, of one size.
@@ -868,6 +880,7 @@ impl Harness {
             apply_limit_buckets: false,
         }))
         .ok()?;
+        let software = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
         let (device, queue, dual_source_blending, color_texture_format) =
             gpui::block_on(crate::WgpuContext::create_device(&adapter)).ok()?;
         let (device, queue) = (Arc::new(device), Arc::new(queue));
@@ -968,7 +981,21 @@ impl Harness {
             state: FrameState::default(),
             dynamic_textures: crate::fast::dynamic_textures::TextureStore::default(),
             dual_source_blending,
+            software,
         })
+    }
+
+    /// How many levels a channel may differ between tiles and direct drawing:
+    /// none on a GPU, one on a software rasterizer. A path in a tile lies
+    /// across its render target's edge where it does not in the window, and
+    /// software rasterizers (WARP on Windows CI) resolve the coverage of such
+    /// a triangle's edge samples differently, though the shader's inputs are
+    /// bitwise identical; on WARP that leaves faint path edge pixels one level
+    /// apart. Production draws paths over the tiles, never into them
+    /// (`gpui::fast::layers::overlay`). lavapipe differs by whole samples and
+    /// does not pass these tests.
+    pub(super) fn pixel_tolerance(&self) -> u8 {
+        if self.software { 1 } else { 0 }
     }
 
     pub(super) fn device(&self) -> &wgpu::Device {
