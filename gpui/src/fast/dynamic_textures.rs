@@ -22,6 +22,7 @@
 
 use anyhow::{Context as _, Result};
 use std::{
+    cell::RefCell,
     collections::HashMap,
     sync::{
         Arc,
@@ -29,6 +30,7 @@ use std::{
     },
 };
 
+use crate::fast::dependencies::StateVersion;
 use crate::fast::layers::scene::LAYER_TILE_TEXTURE_BASE;
 use crate::{
     AtlasTextureId, AtlasTextureKind, AtlasTile, Bounds, DevicePixels, Pixels, PolychromeSprite,
@@ -226,6 +228,77 @@ fn painted_version(id: DynamicTextureId) -> u32 {
         .map_or(1, |state| state.version.max(1))
 }
 
+/// For each texture painted on this thread, the state the retained views and
+/// scroll layers that painted it read, so a write outside a frame draws only
+/// them again. GPUI draws on one thread; handles removed elsewhere leave an
+/// entry here until [`PaintDependencies::entry`] sweeps it.
+#[derive(Default)]
+struct PaintDependencies {
+    textures: HashMap<DynamicTextureId, PaintDependency>,
+    sweep_at: usize,
+}
+
+struct PaintDependency {
+    version: StateVersion,
+    /// Whether a dependency recording saw a paint of the texture. Without
+    /// one, nothing would be marked for drawing again.
+    recorded: bool,
+}
+
+thread_local! {
+    static PAINT_DEPENDENCIES: RefCell<PaintDependencies> = RefCell::default();
+}
+
+impl PaintDependencies {
+    fn entry(&mut self, id: DynamicTextureId) -> &mut PaintDependency {
+        if !self.textures.contains_key(&id) && self.textures.len() >= self.sweep_at {
+            let live = live_textures();
+            self.textures.retain(|id, _| live.contains_key(id));
+            self.sweep_at = (self.textures.len() * 2).max(64);
+        }
+        self.textures.entry(id).or_insert_with(|| PaintDependency {
+            version: StateVersion::default(),
+            recorded: false,
+        })
+    }
+}
+
+/// Records the paint of texture `id` as a read for any dependency recording
+/// open in `window`.
+fn note_painted(window: &Window, id: DynamicTextureId) {
+    PAINT_DEPENDENCIES.with_borrow_mut(|dependencies| {
+        let dependency = dependencies.entry(id);
+        dependency.recorded |= window
+            .retained_state
+            .ambient_reads
+            .note_state(&dependency.version);
+    });
+}
+
+/// After a write to texture `id` outside a frame, schedules a frame that
+/// draws again what painted it, or the whole window when that is unknown:
+/// the texture was not painted yet, or views are not retained. A write while
+/// the window draws schedules nothing, as `Window::refresh` would not.
+fn invalidate_painters(window: &mut Window, id: DynamicTextureId) {
+    if !window.invalidator.not_drawing() {
+        return;
+    }
+    let targeted = window.retained_state.view_retention
+        && PAINT_DEPENDENCIES.with_borrow(|dependencies| {
+            dependencies
+                .textures
+                .get(&id)
+                .filter(|dependency| dependency.recorded)
+                .map(|dependency| dependency.version.bump())
+                .is_some()
+        });
+    if targeted {
+        window.invalidator.set_dirty(true);
+    } else {
+        window.refresh();
+    }
+}
+
 /// Allocates a mutable BGRA8 texture.
 ///
 /// `bytes` holds the initial contents in `bytes_per_row`-strided rows; it is
@@ -350,6 +423,7 @@ pub(crate) fn paint(
     window.invalidator.debug_assert_paint();
 
     let texture_size = live_size(texture.id)?;
+    note_painted(window, texture.id);
 
     // Every consumer resolves a sprite of this texture through its atlas
     // texture id — the dynamic range the renderer checks first — and never
@@ -387,6 +461,12 @@ pub(crate) fn remove(texture: DynamicTexture) {
     {
         backend.remove_texture(texture.id);
     }
+    // `try_with`: a handle may be dropped while its thread's locals are torn down.
+    let _ = PAINT_DEPENDENCIES.try_with(|dependencies| {
+        if let Ok(mut dependencies) = dependencies.try_borrow_mut() {
+            dependencies.textures.remove(&texture.id);
+        }
+    });
 }
 
 impl Window {
@@ -418,13 +498,15 @@ impl Window {
     /// texture keeps its previous contents, and the version the next paint
     /// carries does not advance.
     ///
-    /// Called outside a frame, this marks the window for a full redraw, so
-    /// cached content showing the texture — a retained view that would draw
-    /// nothing again, or a scroll-layer tile — re-renders with the new
-    /// contents even though no element state changed. Called while a frame is
-    /// drawing, the upload lands on the next frame and the window is not
-    /// marked: painting cannot schedule a redraw, so an element that streams
-    /// from its own paint should ask the window to draw again itself.
+    /// Called outside a frame, this schedules a frame that draws again the
+    /// retained views and scroll-layer tiles that last painted the texture,
+    /// so they show the new contents even though no element state changed,
+    /// while the rest of the window is drawn from last frame. A texture not
+    /// painted yet, or a window not retaining views, is redrawn in full.
+    /// Called while a frame is drawing, the upload lands on the next frame
+    /// and the window is not marked: painting cannot schedule a redraw, so an
+    /// element that streams from its own paint should ask the window to draw
+    /// again itself.
     pub fn update_dynamic_texture(
         &mut self,
         texture: DynamicTexture,
@@ -433,19 +515,18 @@ impl Window {
         bytes_per_row: u32,
     ) -> Result<()> {
         update(texture, bounds, bytes, bytes_per_row)?;
-        self.refresh();
+        invalidate_painters(self, texture.id);
         Ok(())
     }
 
     /// Records that a GPU producer wrote new contents into `texture`.
     ///
     /// Like [`Window::update_dynamic_texture`], this advances the version the
-    /// next paint carries and, called outside a frame, marks the window for a
-    /// full redraw, so cached views and scroll-layer tiles showing the
-    /// texture render again. A removed texture is refused.
+    /// next paint carries and, called outside a frame, schedules a frame that
+    /// draws again what painted the texture. A removed texture is refused.
     pub fn refresh_dynamic_texture(&mut self, texture: DynamicTexture) -> Result<()> {
         mark_written(texture)?;
-        self.refresh();
+        invalidate_painters(self, texture.id);
         Ok(())
     }
 

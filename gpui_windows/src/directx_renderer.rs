@@ -1,4 +1,3 @@
-// Modified by Longbridge for gpui-fast.
 use std::{
     slice,
     sync::{Arc, OnceLock},
@@ -25,7 +24,7 @@ use crate::*;
 use gpui::*;
 
 pub(crate) const DISABLE_DIRECT_COMPOSITION: &str = "GPUI_DISABLE_DIRECT_COMPOSITION";
-pub(crate) const RENDER_TARGET_FORMAT: DXGI_FORMAT = DXGI_FORMAT_B8G8R8A8_UNORM;
+const RENDER_TARGET_FORMAT: DXGI_FORMAT = DXGI_FORMAT_B8G8R8A8_UNORM;
 // This configuration is used for MSAA rendering on paths only, and it's guaranteed to be supported by DirectX 11.
 const PATH_MULTISAMPLE_COUNT: u32 = 4;
 const MAX_INSTANCE_BUFFER_SIZE: usize = 256 * 1024 * 1024;
@@ -39,25 +38,22 @@ pub(crate) struct FontInfo {
 
 pub(crate) struct DirectXRenderer {
     hwnd: HWND,
-    pub(crate) atlas: Arc<DirectXAtlas>,
-    pub(crate) devices: Option<DirectXRendererDevices>,
-    pub(crate) resources: Option<DirectXResources>,
-    pub(crate) globals: DirectXGlobalElements,
-    pub(crate) pipelines: DirectXRenderPipelines,
-    pub(crate) direct_composition: Option<DirectComposition>,
+    atlas: Arc<DirectXAtlas>,
+    devices: Option<DirectXRendererDevices>,
+    resources: Option<DirectXResources>,
+    globals: DirectXGlobalElements,
+    pipelines: DirectXRenderPipelines,
+    direct_composition: Option<DirectComposition>,
     font_info: &'static FontInfo,
 
-    pub(crate) width: u32,
-    pub(crate) height: u32,
+    width: u32,
+    height: u32,
 
     /// Whether we want to skip drwaing due to device lost events.
     ///
     /// In that case we want to discard the first frame that we draw as we got reset in the middle of a frame
     /// meaning we lost all the allocated gpu textures and scene resources.
-    pub(crate) skip_draws: bool,
-    pub(crate) fast_frame: crate::fast::frame::FrameState,
-    pub(crate) fast_composition: crate::fast::composition::DirectXComposition,
-    pub(crate) fast_recovery: crate::fast::device_recovery::RecoveryState,
+    skip_draws: bool,
 }
 
 /// Direct3D objects
@@ -68,40 +64,40 @@ pub(crate) struct DirectXRendererDevices {
     pub(crate) device: ID3D11Device,
     pub(crate) device_context: ID3D11DeviceContext,
     dxgi_device: Option<IDXGIDevice>,
-    pub(crate) annotation: Option<ID3DUserDefinedAnnotation>,
+    annotation: Option<ID3DUserDefinedAnnotation>,
 }
 
-pub(crate) struct DirectXResources {
+struct DirectXResources {
     // Direct3D rendering objects
     swap_chain: IDXGISwapChain1,
     render_target: Option<ID3D11Texture2D>,
-    pub(crate) render_target_view: Option<ID3D11RenderTargetView>,
+    render_target_view: Option<ID3D11RenderTargetView>,
 
     // Path intermediate textures (with MSAA)
-    pub(crate) path_intermediate_texture: ID3D11Texture2D,
-    pub(crate) path_intermediate_srv: Option<ID3D11ShaderResourceView>,
-    pub(crate) path_intermediate_msaa_texture: ID3D11Texture2D,
-    pub(crate) path_intermediate_msaa_view: Option<ID3D11RenderTargetView>,
+    path_intermediate_texture: ID3D11Texture2D,
+    path_intermediate_srv: Option<ID3D11ShaderResourceView>,
+    path_intermediate_msaa_texture: ID3D11Texture2D,
+    path_intermediate_msaa_view: Option<ID3D11RenderTargetView>,
 
     // Cached viewport
     viewport: D3D11_VIEWPORT,
 }
 
-pub(crate) struct DirectXRenderPipelines {
-    pub(crate) shadow_pipeline: PipelineState<Shadow>,
-    pub(crate) quad_pipeline: PipelineState<Quad>,
-    pub(crate) path_rasterization_pipeline: PipelineState<PathRasterizationSprite>,
-    pub(crate) path_sprite_pipeline: PipelineState<PathSprite>,
-    pub(crate) underline_pipeline: PipelineState<Underline>,
-    pub(crate) mono_sprites: PipelineState<MonochromeSprite>,
-    pub(crate) subpixel_sprites: PipelineState<SubpixelSprite>,
-    pub(crate) poly_sprites: PipelineState<PolychromeSprite>,
+struct DirectXRenderPipelines {
+    shadow_pipeline: PipelineState<Shadow>,
+    quad_pipeline: PipelineState<Quad>,
+    path_rasterization_pipeline: PipelineState<PathRasterizationSprite>,
+    path_sprite_pipeline: PipelineState<PathSprite>,
+    underline_pipeline: PipelineState<Underline>,
+    mono_sprites: PipelineState<MonochromeSprite>,
+    subpixel_sprites: PipelineState<SubpixelSprite>,
+    poly_sprites: PipelineState<PolychromeSprite>,
 }
 
-pub(crate) struct DirectXGlobalElements {
-    pub(crate) global_params_buffer: Option<ID3D11Buffer>,
-    pub(crate) batch_params_buffer: Option<ID3D11Buffer>,
-    pub(crate) sampler: Option<ID3D11SamplerState>,
+struct DirectXGlobalElements {
+    global_params_buffer: Option<ID3D11Buffer>,
+    batch_params_buffer: Option<ID3D11Buffer>,
+    sampler: Option<ID3D11SamplerState>,
 }
 
 struct Annotation<'a>(&'a ID3DUserDefinedAnnotation);
@@ -119,10 +115,10 @@ impl Drop for Annotation<'_> {
     }
 }
 
-pub(crate) struct DirectComposition {
-    pub(crate) comp_device: IDCompositionDevice,
-    pub(crate) comp_target: IDCompositionTarget,
-    pub(crate) comp_visual: IDCompositionVisual,
+struct DirectComposition {
+    comp_device: IDCompositionDevice,
+    comp_target: IDCompositionTarget,
+    comp_visual: IDCompositionVisual,
 }
 
 impl DirectXRendererDevices {
@@ -198,9 +194,6 @@ impl DirectXRenderer {
             width: 1,
             height: 1,
             skip_draws: false,
-            fast_frame: crate::fast::frame::FrameState::default(),
-            fast_composition: crate::fast::composition::DirectXComposition::default(),
-            fast_recovery: crate::fast::device_recovery::RecoveryState::default(),
         })
     }
 
@@ -215,8 +208,7 @@ impl DirectXRenderer {
             .as_ref()
             .expect("devices missing")
             .device_context;
-        crate::fast::globals::write_globals(
-            &self.fast_frame,
+        update_buffer(
             device_context,
             self.globals.global_params_buffer.as_ref().unwrap(),
             &[GlobalParams {
@@ -250,7 +242,7 @@ impl DirectXRenderer {
     }
 
     #[inline]
-    pub(crate) fn present(&mut self) -> Result<()> {
+    fn present(&mut self) -> Result<()> {
         let result = unsafe {
             self.resources
                 .as_ref()
@@ -258,8 +250,6 @@ impl DirectXRenderer {
                 .swap_chain
                 .Present(0, DXGI_PRESENT(0))
         };
-        #[cfg(test)]
-        crate::fast::native_tests::present(self.hwnd, self.direct_composition.is_some(), result.0);
         result.ok().context("Presenting swap chain failed")
     }
 
@@ -271,8 +261,6 @@ impl DirectXRenderer {
     }
 
     fn handle_device_lost_impl(&mut self, directx_devices: &DirectXDevices) -> Result<()> {
-        crate::fast::layers::release_tiles(self);
-        crate::fast::composition::release(self);
         let disable_direct_composition = self.direct_composition.is_none();
 
         unsafe {
@@ -335,7 +323,6 @@ impl DirectXRenderer {
         self.globals = globals;
         self.pipelines = pipelines;
         self.direct_composition = direct_composition;
-        crate::fast::composition::recreate(self)?;
         self.skip_draws = true;
         Ok(())
     }
@@ -345,7 +332,7 @@ impl DirectXRenderer {
         scene: &Scene,
         background_appearance: WindowBackgroundAppearance,
     ) -> Result<()> {
-        if self.skip_draws || !crate::fast::device_recovery::can_draw(self) {
+        if self.skip_draws {
             // skip drawing this frame, we just recovered from a device lost event
             // and so likely do not have the textures anymore that are required for drawing
             return Ok(());
@@ -359,20 +346,16 @@ impl DirectXRenderer {
     /// [`draw`](Self::draw) (which then presents) and
     /// [`render_to_image`](Self::render_to_image) (which reads the target back
     /// instead), so the two cannot drift.
-    pub(crate) fn render(
+    fn render(
         &mut self,
         scene: &Scene,
         background_appearance: WindowBackgroundAppearance,
     ) -> Result<()> {
-        crate::fast::layers::raster::rasterize_tiles(self, scene)?;
         self.pre_draw(&match background_appearance {
             WindowBackgroundAppearance::Opaque => [1.0f32; 4],
             _ => [0.0f32; 4],
         })?;
         self.upload_scene_buffers(scene)?;
-        if crate::fast::frame::draw_batches(self, scene)? {
-            return Ok(());
-        }
 
         let annotation = self
             .devices
@@ -507,7 +490,6 @@ impl DirectXRenderer {
         }
         self.width = width;
         self.height = height;
-        crate::fast::layers::release_tiles(self);
 
         // Clear the render target before resizing
         let devices = self.devices.as_ref().context("devices missing")?;
@@ -540,7 +522,6 @@ impl DirectXRenderer {
                 .device_context
                 .OMSetRenderTargets(Some(slice::from_ref(&resources.render_target_view)), None);
         }
-        crate::fast::composition::resize(self)?;
 
         Ok(())
     }
@@ -1086,13 +1067,13 @@ impl DirectXGlobalElements {
 
 #[derive(Debug, Default)]
 #[repr(C)]
-pub(crate) struct GlobalParams {
-    pub(crate) gamma_ratios: [f32; 4],
-    pub(crate) viewport_size: [f32; 2],
-    pub(crate) grayscale_enhanced_contrast: f32,
-    pub(crate) subpixel_enhanced_contrast: f32,
-    pub(crate) is_bgr: u32,
-    pub(crate) _pad: [u32; 3],
+struct GlobalParams {
+    gamma_ratios: [f32; 4],
+    viewport_size: [f32; 2],
+    grayscale_enhanced_contrast: f32,
+    subpixel_enhanced_contrast: f32,
+    is_bgr: u32,
+    _pad: [u32; 3],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1104,14 +1085,14 @@ struct BatchParams {
 
 const _: () = assert!(std::mem::size_of::<BatchParams>() == 16);
 
-pub(crate) struct PipelineState<T> {
-    pub(crate) label: &'static str,
-    pub(crate) vertex: ID3D11VertexShader,
-    pub(crate) fragment: ID3D11PixelShader,
+struct PipelineState<T> {
+    label: &'static str,
+    vertex: ID3D11VertexShader,
+    fragment: ID3D11PixelShader,
     buffer: ID3D11Buffer,
-    pub(crate) buffer_size: usize,
-    pub(crate) view: Option<ID3D11ShaderResourceView>,
-    pub(crate) blend_state: ID3D11BlendState,
+    buffer_size: usize,
+    view: Option<ID3D11ShaderResourceView>,
+    blend_state: ID3D11BlendState,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -1146,7 +1127,7 @@ impl<T> PipelineState<T> {
         })
     }
 
-    pub(crate) fn update_buffer(
+    fn update_buffer(
         &mut self,
         device: &ID3D11Device,
         device_context: &ID3D11DeviceContext,
@@ -1287,17 +1268,17 @@ impl<T> PipelineState<T> {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub(crate) struct PathRasterizationSprite {
-    pub(crate) xy_position: Point<ScaledPixels>,
-    pub(crate) st_position: Point<f32>,
-    pub(crate) color: Background,
-    pub(crate) bounds: Bounds<ScaledPixels>,
+struct PathRasterizationSprite {
+    xy_position: Point<ScaledPixels>,
+    st_position: Point<f32>,
+    color: Background,
+    bounds: Bounds<ScaledPixels>,
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub(crate) struct PathSprite {
-    pub(crate) bounds: Bounds<ScaledPixels>,
+struct PathSprite {
+    bounds: Bounds<ScaledPixels>,
 }
 
 impl Drop for DirectXRenderer {
@@ -1314,7 +1295,7 @@ fn get_comp_device(dxgi_device: &IDXGIDevice) -> Result<IDCompositionDevice> {
     Ok(unsafe { DCompositionCreateDevice(dxgi_device)? })
 }
 
-pub(crate) fn create_swap_chain_for_composition(
+fn create_swap_chain_for_composition(
     dxgi_factory: &IDXGIFactory6,
     device: &ID3D11Device,
     width: u32,
@@ -1412,7 +1393,7 @@ fn create_resources(
 }
 
 #[inline]
-pub(crate) fn create_render_target_and_its_view(
+fn create_render_target_and_its_view(
     swap_chain: &IDXGISwapChain1,
     device: &ID3D11Device,
 ) -> Result<(ID3D11Texture2D, Option<ID3D11RenderTargetView>)> {
@@ -1423,7 +1404,7 @@ pub(crate) fn create_render_target_and_its_view(
 }
 
 #[inline]
-pub(crate) fn create_path_intermediate_texture(
+fn create_path_intermediate_texture(
     device: &ID3D11Device,
     width: u32,
     height: u32,
@@ -1456,7 +1437,7 @@ pub(crate) fn create_path_intermediate_texture(
 }
 
 #[inline]
-pub(crate) fn create_path_intermediate_msaa_texture_and_view(
+fn create_path_intermediate_msaa_texture_and_view(
     device: &ID3D11Device,
     width: u32,
     height: u32,
@@ -1668,7 +1649,7 @@ fn update_buffer<T>(
 }
 
 #[inline]
-pub(crate) fn update_batch_start(
+fn update_batch_start(
     device_context: &ID3D11DeviceContext,
     buffer: &ID3D11Buffer,
     first_instance: u32,
@@ -1711,7 +1692,7 @@ fn report_live_objects(device: &ID3D11Device) -> Result<()> {
     Ok(())
 }
 
-pub(crate) const BUFFER_COUNT: usize = 3;
+const BUFFER_COUNT: usize = 3;
 
 pub(crate) mod shader_resources {
     use anyhow::Result;
@@ -1849,7 +1830,6 @@ pub(crate) mod shader_resources {
             let shader_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join(&format!("src/{}", shader_name))
                 .canonicalize()?;
-            let shader_path = crate::fast::rounded_clip::shader_path(shader_path, env!("OUT_DIR"));
 
             let entry_point = PCSTR::from_raw(entry.as_ptr());
             let target_cstr = PCSTR::from_raw(target.as_ptr());

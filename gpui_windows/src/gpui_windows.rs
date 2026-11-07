@@ -6,8 +6,8 @@ mod destination_list;
 mod dialog;
 mod direct_manipulation;
 mod direct_write;
-mod directx_atlas;
 mod directx_devices;
+#[path = "fast/directx_renderer.rs"]
 mod directx_renderer;
 mod dispatcher;
 mod display;
@@ -25,7 +25,6 @@ mod wrapper;
 pub(crate) use clipboard::*;
 pub(crate) use destination_list::*;
 pub(crate) use direct_write::*;
-pub(crate) use directx_atlas::*;
 pub(crate) use directx_devices::*;
 pub(crate) use directx_renderer::FontInfo;
 pub(crate) use directx_renderer::*;

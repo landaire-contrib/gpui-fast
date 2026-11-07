@@ -174,6 +174,7 @@ pub(crate) mod ambient {
 #[derive(Clone)]
 pub(crate) struct AmbientReads {
     globals: Rc<RefCell<Vec<TypeId>>>,
+    states: Rc<RefCell<Vec<(StateVersion, u64)>>>,
     recordings: Rc<Cell<usize>>,
 }
 
@@ -185,6 +186,19 @@ impl AmbientReads {
         if self.recordings.get() > 0 {
             self.globals.borrow_mut().push(TypeId::of::<T>());
         }
+    }
+
+    /// Records, for any recording that is open, that the state `version`
+    /// belongs to was read as it is now, as [`note_state_read`] does where no
+    /// app is at hand. Returns whether a recording was open.
+    pub(crate) fn note_state(&self, version: &StateVersion) -> bool {
+        if self.recordings.get() == 0 {
+            return false;
+        }
+        self.states
+            .borrow_mut()
+            .push((version.clone(), version.get()));
+        true
     }
 }
 
@@ -239,6 +253,7 @@ impl App {
     pub(crate) fn ambient_reads(&self) -> AmbientReads {
         AmbientReads {
             globals: self.dependencies.global_read_log.clone(),
+            states: self.dependencies.state_read_log.clone(),
             recordings: self.entities.access_log.recordings.clone(),
         }
     }

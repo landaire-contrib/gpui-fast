@@ -121,16 +121,18 @@ impl WgpuContext {
 }
 
 impl WgpuDynamicTexture {
-    /// Writes new contents and refreshes the window only after success.
+    /// Writes new contents and, only after success, schedules a frame that
+    /// draws again what painted the texture.
     ///
     /// Submit the producer's commands on the creating context's queue before
     /// returning. GPUI's later submission samples the same texture; queue
     /// ordering makes a CPU wait or transfer copy unnecessary. Do not submit
     /// partial writes and then return an error. Call only when contents change.
-    /// Outside paint, success requests a redraw. During paint it updates the
-    /// current frame without scheduling another frame.
-    /// Only this window is refreshed; notify other windows displaying the
-    /// target so they redraw its new contents too.
+    /// Outside paint, success requests a redraw of the views and scroll-layer
+    /// tiles that painted the texture (the whole window if none did yet).
+    /// During paint it updates the current frame without scheduling another
+    /// frame. Only this window is scheduled; notify other windows displaying
+    /// the target so they redraw its new contents too.
     pub fn render<T>(
         &self,
         window: &mut Window,

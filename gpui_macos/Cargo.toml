@@ -23,8 +23,8 @@ name = "gpui_macos"
 
 [features]
 default = ["gpui/default"]
-bench-support = ["gpui/bench-support", "gpui_apple/bench-support"]
-test-support = ["gpui/test-support", "gpui_apple/test-support"]
+bench-support = ["gpui/bench-support", "gpui_apple/bench-support", "gpui_wgpu/bench-support"]
+test-support = ["gpui/test-support", "gpui_apple/test-support", "gpui_wgpu/test-support"]
 runtime_shaders = ["gpui_apple/runtime_shaders"]
 font-kit = ["gpui_apple/font-kit"]
 screen-capture = ["gpui/screen-capture", "dep:objc2-core-media", "dep:objc2-screen-capture-kit"]
@@ -83,6 +83,11 @@ path = "../gpui_apple"
 [target."cfg(target_os = \"macos\")".dependencies.gpui_util]
 package = "gpui-pre-util"
 version = "=0.3.11"
+
+[target."cfg(target_os = \"macos\")".dependencies.gpui_wgpu]
+package = "gpui-fast-wgpu"
+version = "^0.1.14"
+path = "../gpui_wgpu"
 
 [target."cfg(target_os = \"macos\")".dependencies.image]
 version = "0.25.1"

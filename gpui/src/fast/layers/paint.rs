@@ -181,6 +181,7 @@ fn begin_scrolling_children(
                 scroll_offset,
             });
             crate::fast::layers::reuse::carry_prepaint(window, id, viewport, scroll_offset);
+            crate::fast::layers::invalidate::keep_layer_reads(window, cx, id);
         }
         Decision::Repaint => {
             let content_origin = if child_min.x == Pixels::MAX {

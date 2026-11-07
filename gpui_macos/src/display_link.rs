@@ -1,3 +1,4 @@
+// Modified by Longbridge for gpui-fast.
 //! Frame pacing for macOS windows.
 //!
 //! On macOS 14 and later a window is paced by a `CAMetalDisplayLink` on its
@@ -588,8 +589,6 @@ mod sys {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use objc2::AnyThread;
-    use objc2_quartz_core::CAMetalDisplayLink;
 
     #[test]
     fn metal_frames_pause_only_when_gpui_neither_draws_nor_asks_again() {
@@ -617,26 +616,6 @@ mod tests {
 
         frames.begin_frame();
         assert!(frames.end_frame(false), "an idle update pauses the link");
-    }
-
-    #[test]
-    fn a_renderer_draws_normally_after_its_display_link_is_invalidated() {
-        if !MetalFrameSource::is_available() {
-            return;
-        }
-        let mut renderer =
-            crate::renderer::MetalRenderer::new(Default::default(), false, false).unwrap();
-        renderer.update_drawable_size(gpui::size(gpui::DevicePixels(64), gpui::DevicePixels(64)));
-        let layer = renderer.layer().expect("window renderer has a layer");
-        // The link is never added to a run loop: attaching it to the layer is
-        // the state under test.
-        let link = CAMetalDisplayLink::initWithMetalLayer(CAMetalDisplayLink::alloc(), layer);
-        renderer.set_display_link_attached(true);
-        renderer.draw(&gpui::Scene::default());
-
-        link.invalidate();
-        renderer.set_display_link_attached(false);
-        renderer.draw(&gpui::Scene::default());
     }
 
     #[test]

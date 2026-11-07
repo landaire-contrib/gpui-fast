@@ -1054,12 +1054,12 @@ impl PlatformWindow for WindowsWindow {
             .borrow_mut()
             .draw(scene, self.state.background_appearance.get())
             .log_err();
-        crate::fast::frame_schedule::schedule_frame(self);
+        crate::fast::renderer::after_draw(self);
     }
 
     fn draw_composed(&self, scene: ComposedScene<'_>) {
         crate::fast::composition::draw_composed(self, scene);
-        crate::fast::frame_schedule::schedule_frame(self);
+        crate::fast::renderer::after_draw(self);
     }
 
     fn enable_window_composition(&self) -> anyhow::Result<()> {

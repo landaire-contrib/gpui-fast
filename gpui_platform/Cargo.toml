@@ -71,7 +71,7 @@ package = "gpui-fast-linux"
 version = "^0.1.14"
 path = "../gpui_linux"
 
-[target."cfg(target_os = \"linux\")".dependencies.gpui_wgpu]
+[target."cfg(any(target_os = \"linux\", target_os = \"macos\", target_os = \"windows\"))".dependencies.gpui_wgpu]
 optional = true
 package = "gpui-fast-wgpu"
 version = "^0.1.14"

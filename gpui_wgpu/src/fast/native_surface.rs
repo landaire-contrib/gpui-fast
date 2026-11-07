@@ -224,6 +224,29 @@ impl WgpuRenderer {
         self.install_surface(surface, config)
     }
 
+    /// Configures the current surface again with its current configuration
+    /// and reports whether the driver accepted it.
+    ///
+    /// A failed configure (for example, out of memory creating a swap chain
+    /// on a large resize) leaves the surface unconfigured, and `draw` then
+    /// fails every frame. Call this after a resize whose frame did not draw,
+    /// and retry on a later frame while it returns an error.
+    pub fn reconfigure_surface(&mut self) -> anyhow::Result<()> {
+        let RendererState::Ready { surface, core } = &self.state else {
+            anyhow::bail!("the renderer has no configured surface");
+        };
+        let device = &core.resources.device;
+        let out_of_memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        surface.configure(device, &self.surface_config);
+        let validation = gpui::block_on(validation.pop());
+        let out_of_memory = gpui::block_on(out_of_memory.pop());
+        match validation.or(out_of_memory) {
+            Some(error) => anyhow::bail!("surface configuration failed: {error}"),
+            None => Ok(()),
+        }
+    }
+
     /// The configuration that recreates the current surface.
     fn current_surface_config(&self) -> WgpuSurfaceConfig {
         WgpuSurfaceConfig {
@@ -268,9 +291,12 @@ impl WgpuRenderer {
                 anyhow::bail!("Cannot replace the surface: GPU resources have been released")
             }
         };
+        // The new surface may not support the old color space; check it again.
+        self.surface_config.color_space = wgpu::SurfaceColorSpace::Auto;
         surface.configure(&core.resources.device, &self.surface_config);
         core.resources.invalidate_intermediate_textures();
         self.state = RendererState::Ready { surface, core };
+        self.apply_color_space();
         Ok(())
     }
 }
