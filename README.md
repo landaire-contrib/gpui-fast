@@ -46,6 +46,8 @@ Opt-in composition supports macOS, Windows and Linux (Wayland and X11), based on
 | Linux (Wayland) | Subsurface | Overlay subsurfaces |
 | Linux (X11) | Child window (WebKitGTK) | Overlay window blended by the compositing manager; cut out of the native content without one |
 
+On Windows, composition needs Direct3D 12. When no GPU driver supports it, GPUI draws on WARP, the Windows software renderer. If Direct3D 12 cannot draw at all, GPUI draws with Vulkan or OpenGL instead. Windows are then opaque, transparent and Mica backgrounds show black, and composition is unavailable.
+
 ```sh
 # WKWebView on macOS, WebView2 on Windows, a GPU surface of its own on Linux
 cargo run -p gpui_perf --example native_webview
