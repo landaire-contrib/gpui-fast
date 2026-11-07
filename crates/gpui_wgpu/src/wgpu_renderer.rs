@@ -203,7 +203,7 @@ struct CachedTextureBindGroup {
 }
 
 impl WgpuResources {
-    fn invalidate_intermediate_textures(&mut self) {
+    pub(crate) fn invalidate_intermediate_textures(&mut self) {
         self.path_intermediate_texture = None;
         self.path_intermediate_view = None;
         self.path_msaa_texture = None;
@@ -232,7 +232,7 @@ pub(crate) struct WgpuRendererCore {
 
 /// GPU resources of a windowed renderer. A surface is only ever configured against the
 /// device that owns `core`, so it cannot outlive it: there is no surface-only state.
-enum RendererState {
+pub(crate) enum RendererState {
     /// Frames can be drawn.
     Ready {
         surface: wgpu::Surface<'static>,
@@ -253,11 +253,11 @@ pub struct WgpuRenderer {
     /// Compositor GPU hint for adapter selection (unused on WASM).
     #[allow(dead_code)]
     pub(crate) compositor_gpu: Option<CompositorGpuHint>,
-    state: RendererState,
-    surface_config: wgpu::SurfaceConfiguration,
+    pub(crate) state: RendererState,
+    pub(crate) surface_config: wgpu::SurfaceConfiguration,
     pub(crate) atlas: Arc<WgpuAtlas>,
-    transparent_alpha_mode: wgpu::CompositeAlphaMode,
-    opaque_alpha_mode: wgpu::CompositeAlphaMode,
+    pub(crate) transparent_alpha_mode: wgpu::CompositeAlphaMode,
+    pub(crate) opaque_alpha_mode: wgpu::CompositeAlphaMode,
     max_texture_size: u32,
     pub(crate) is_bgr: bool,
     failed_frame_count: u32,

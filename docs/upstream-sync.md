@@ -252,6 +252,15 @@ No application-specific timeline policy belongs here.
   it creates after device loss; the generation tells the application to
   recreate its GPU objects.
 
+- Native wgpu windows on Windows and macOS (`gpui_wgpu::fast::native_surface`):
+  `WgpuContext::instance` selects DX12 on Windows and Metal on Apple targets
+  (Vulkan and GL elsewhere, as upstream). `gpui_wgpu` exports the
+  `WgpuSurfaceSource` trait, and `WgpuRenderer` gains `new_from_source`,
+  `recover_from_source`, `new_sharing_atlas_from_source` and
+  `replace_surface_from_source`. Upstream only builds surfaces from raw
+  window handles, while DirectComposition visuals and `CAMetalLayer`s need
+  surfaces the platform creates, on whichever instance owns the device.
+
 When the check fails, move the change into a `fast/` module and leave a hook
 behind that names it; use `git diff <import_commit> -- <file>` to see what
 differs.

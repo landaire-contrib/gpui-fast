@@ -17,5 +17,7 @@ pub(crate) mod dynamic_textures;
 pub(crate) mod frame;
 pub(crate) mod globals;
 pub(crate) mod layers;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod native_surface;
 pub(crate) mod pass_state;
 pub(crate) mod rounded_clip;
