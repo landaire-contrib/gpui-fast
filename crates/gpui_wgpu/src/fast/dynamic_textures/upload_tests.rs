@@ -162,7 +162,7 @@ fn cpu_textures_are_created_updated_painted_and_removed(cx: &mut gpui::TestAppCo
 }
 
 #[gpui::test]
-fn cpu_textures_move_to_a_newly_published_context(cx: &mut gpui::TestAppContext) {
+fn cpu_textures_keep_their_contents_on_a_newly_published_context(cx: &mut gpui::TestAppContext) {
     let _published = PUBLISHED.lock();
     let (context, _) = WgpuContext::new_headless().expect("GPU required");
     crate::fast::app_context::publish(&context);
@@ -194,6 +194,26 @@ fn cpu_textures_move_to_a_newly_published_context(cx: &mut gpui::TestAppContext)
     assert!(context.fast_dynamic_textures.view(texture.id()).is_none());
     assert!(other.fast_dynamic_textures.view(texture.id()).is_some());
 
+    let draw = |cx: &mut gpui::TestAppContext| {
+        window
+            .update(cx, |_, window, cx| {
+                window.draw(cx).clear(cx);
+                let scale = window.scale_factor();
+                let image = draw_other(
+                    &other,
+                    other_format,
+                    window.painted_scene(),
+                    (64. * scale) as u32,
+                );
+                (image, scale)
+            })
+            .unwrap()
+    };
+    // The new device's texture holds what the app last wrote.
+    let (image, scale) = draw(cx);
+    pixel(&image, scale, 16., 32., [0, 255, 0, 255]);
+    pixel(&image, scale, 48., 32., [0, 255, 0, 255]);
+
     window
         .update(cx, |_, window, _| {
             window
@@ -201,28 +221,111 @@ fn cpu_textures_move_to_a_newly_published_context(cx: &mut gpui::TestAppContext)
                     texture,
                     Bounds {
                         origin: point(DevicePixels(0), DevicePixels(0)),
-                        size: size(DevicePixels(16), DevicePixels(16)),
+                        size: size(DevicePixels(8), DevicePixels(16)),
                     },
-                    &rows(16, 16, 64, BLUE),
-                    64,
+                    &rows(8, 16, 32, BLUE),
+                    32,
                 )
                 .unwrap();
         })
         .unwrap();
+    let (image, scale) = draw(cx);
+    pixel(&image, scale, 16., 32., [0, 0, 255, 255]);
+    pixel(&image, scale, 48., 32., [0, 255, 0, 255]);
     window
-        .update(cx, |_, window, cx| {
-            window.draw(cx).clear(cx);
-            let scale = window.scale_factor();
-            let image = draw_other(
-                &other,
-                other_format,
-                window.painted_scene(),
-                (64. * scale) as u32,
-            );
-            pixel(&image, scale, 32., 32., [0, 0, 255, 255]);
-            window.remove_dynamic_texture(texture);
-        })
+        .update(cx, |_, window, _| window.remove_dynamic_texture(texture))
         .unwrap();
     assert!(other.fast_dynamic_textures.view(texture.id()).is_none());
     crate::fast::app_context::publish(&context);
+}
+
+/// Writes between frames stay in the CPU copy, merged into one region, so a
+/// producer streaming into a window that does not draw stages nothing on the
+/// queue; the next frame uploads them once.
+#[gpui::test]
+fn cpu_writes_coalesce_until_a_frame_uploads_them(cx: &mut gpui::TestAppContext) {
+    let _published = PUBLISHED.lock();
+    // A device of its own: other tests draw frames on the shared headless
+    // device, and any frame on the published device uploads pending writes.
+    let (context, format) = WgpuContext::create_headless().expect("GPU required");
+    crate::fast::app_context::publish(&context);
+    let render = |window: &mut gpui::Window, cx: &mut gpui::App| {
+        window.draw(cx).clear(cx);
+        let scale = window.scale_factor();
+        let image = draw_other(
+            &context,
+            format,
+            window.painted_scene(),
+            (64. * scale) as u32,
+        );
+        (image, scale)
+    };
+    let window = cx.update(|cx| {
+        cx.open_window(Default::default(), |_, cx| cx.new(|_| Showcase(None)))
+            .unwrap()
+    });
+    let texture = window
+        .update(cx, |showcase, window, cx| {
+            let texture = window
+                .create_dynamic_texture(
+                    size(DevicePixels(16), DevicePixels(16)),
+                    &rows(16, 16, 64, RED),
+                    64,
+                )
+                .unwrap();
+            showcase.0 = Some(texture);
+            cx.notify();
+            texture
+        })
+        .unwrap();
+    let pending = || super::upload::pending_region(texture.id());
+    window
+        .update(cx, |_, window, cx| {
+            render(window, cx);
+        })
+        .unwrap();
+    assert_eq!(pending(), None, "the frame uploaded the initial contents");
+
+    window
+        .update(cx, |_, window, _| {
+            for frame in 0..1000 {
+                let color = if frame % 2 == 0 { GREEN } else { BLUE };
+                for (x, y) in [(0, 0), (12, 12)] {
+                    window
+                        .update_dynamic_texture(
+                            texture,
+                            Bounds {
+                                origin: point(DevicePixels(x), DevicePixels(y)),
+                                size: size(DevicePixels(4), DevicePixels(4)),
+                            },
+                            &rows(4, 4, 16, color),
+                            16,
+                        )
+                        .unwrap();
+                }
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        pending(),
+        Some(Bounds {
+            origin: point(DevicePixels(0), DevicePixels(0)),
+            size: size(DevicePixels(16), DevicePixels(16)),
+        }),
+        "every write merged into one region"
+    );
+
+    window
+        .update(cx, |_, window, cx| {
+            let (image, scale) = render(window, cx);
+            // The last write of each corner wins; the middle keeps red.
+            pixel(&image, scale, 2., 2., [0, 0, 255, 255]);
+            pixel(&image, scale, 62., 62., [0, 0, 255, 255]);
+            pixel(&image, scale, 32., 32., [255, 0, 0, 255]);
+            window.remove_dynamic_texture(texture);
+        })
+        .unwrap();
+    assert_eq!(pending(), None);
+    let (shared, _) = WgpuContext::new_headless().expect("GPU required");
+    crate::fast::app_context::publish(&shared);
 }

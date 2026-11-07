@@ -21,6 +21,15 @@ impl TextureStore {
     }
 }
 
+/// Uploads the CPU dynamic texture writes made since the last frame, before
+/// a frame on `device` samples them. Browsers have no CPU upload backend.
+pub(crate) fn flush_uploads(device: &wgpu::Device) {
+    #[cfg(not(target_family = "wasm"))]
+    upload::flush(device);
+    #[cfg(target_family = "wasm")]
+    let _ = device;
+}
+
 /// An owned render target that GPUI samples without an upload or transfer copy.
 ///
 /// Allocate it from the context drawing the window. Dropping it frees its

@@ -250,10 +250,13 @@ No application-specific timeline policy belongs here.
   A native Metal producer interface is outside this extension.
   On native wgpu, publishing a window context (see below) installs a CPU
   upload backend: `Window::create_dynamic_texture` textures are wgpu
-  textures on that context's device, written with `Queue::write_texture`
-  and registered in its lookup table. After device loss they are recreated
-  on the new device with the same ids and sizes, and the application
-  uploads their contents again.
+  textures on that context's device, registered in its lookup table. A
+  write goes into a CPU copy of the texture and widens its dirty region,
+  and the next frame on the device uploads that region with
+  `Queue::write_texture` before it submits, so a window that does not draw
+  stages nothing however often the app writes. After device loss the
+  textures are recreated on the new device with the same ids, sizes and
+  contents.
 
 - The window renderer's wgpu context, for applications (`gpui_wgpu::fast::app_context`):
   `gpui_wgpu` exports `app_context()`, `WgpuAppContext` and

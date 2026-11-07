@@ -31,8 +31,8 @@ static PUBLISHED: Mutex<Option<WgpuAppContext>> = Mutex::new(None);
 /// a copy. When `context.device_lost()` turns true, stop using the device and
 /// drop its objects; once a window recovers, this returns a new context with
 /// a later generation, on which to recreate them. CPU dynamic textures
-/// (`Window::create_dynamic_texture`) keep their ids and sizes on the new
-/// device, but their contents must be uploaded again.
+/// (`Window::create_dynamic_texture`) move to the new device by themselves,
+/// with their contents.
 pub fn app_context() -> Option<WgpuAppContext> {
     PUBLISHED.lock().clone()
 }

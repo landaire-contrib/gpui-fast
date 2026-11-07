@@ -1475,6 +1475,7 @@ impl WgpuRendererCore {
         );
 
         self.atlas.before_frame();
+        crate::fast::dynamic_textures::flush_uploads(&self.resources.device);
         self.ensure_intermediate_textures(size);
 
         let gamma_params = GammaParams {
