@@ -80,7 +80,9 @@ export function prepare(config: ReleaseConfig, version: string, dest = DEST): vo
   for (const name of config.crates) {
     const source = resolve(ROOT, "crates", name);
     const target = resolve(dest, name);
-    cpSync(source, target, { recursive: true });
+    // Copying a relative symlink rewrites it to an absolute path on this
+    // machine, which a consumer's checkout cannot resolve.
+    cpSync(source, target, { recursive: true, dereference: true });
     const manifest = readToml(resolve(source, "Cargo.toml"));
     const pkg = manifest.package;
     Object.assign(pkg, {
